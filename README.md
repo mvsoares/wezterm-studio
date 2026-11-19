@@ -1,6 +1,7 @@
 # ✦ WezTerm Studio (`wezterm-theme`)
 
 [![CI](https://github.com/mvsoares/wezterm-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/mvsoares/wezterm-studio/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/wezterm-theme?color=3775A9&logo=pypi&logoColor=white)](https://pypi.org/project/wezterm-theme/)
 [![Release](https://img.shields.io/github/v/release/mvsoares/wezterm-studio?color=8b5cf6)](https://github.com/mvsoares/wezterm-studio/releases)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-0ea5e9)](#cross-platform-compatibility)
@@ -46,23 +47,21 @@ Prefer staying in the terminal or working over SSH? Run `wezterm-theme` with no 
 
 ## 📦 Installation
 
-### Quick Install (`pipx`, `uv`, or `pip`)
+### From PyPI (`pipx`, `uv`, or `pip`)
 
 ```bash
-# Recommended: pipx (from GitHub or PyPI once published)
-pipx install git+https://github.com/mvsoares/wezterm-studio.git
+# Recommended: pipx
+pipx install wezterm-theme
 
 # Or via uv (persistent tool install)
-uv tool install git+https://github.com/mvsoares/wezterm-studio.git
+uv tool install wezterm-theme
 
 # Zero-install instant run with uvx
-uvx --from git+https://github.com/mvsoares/wezterm-studio.git wezterm-theme
+uvx wezterm-theme
 
 # Or via pip
-pip install --user git+https://github.com/mvsoares/wezterm-studio.git
+pip install --user wezterm-theme
 ```
-
-> Once published on PyPI (`wezterm-theme`), you can also run simply `pipx install wezterm-theme` or `uvx wezterm-theme`.
 
 ### Local Clone / Editable Development Install
 
