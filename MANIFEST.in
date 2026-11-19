@@ -1,0 +1,6 @@
+include LICENSE
+include README.md
+recursive-include src/wezterm_theme/assets *.html
+recursive-include tests *.py
+prune docs
+prune .github

@@ -1,13 +1,14 @@
 # ✦ WezTerm Studio (`wezterm-theme`)
 
 [![CI](https://github.com/mvsoares/wezterm-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/mvsoares/wezterm-studio/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/mvsoares/wezterm-studio?color=8b5cf6)](https://github.com/mvsoares/wezterm-studio/releases)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-0ea5e9)](#cross-platform-compatibility)
-[![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](https://github.com/mvsoares/wezterm-studio/blob/main/LICENSE)
 
 **WezTerm Studio** (`wezterm-theme`) is a unified, cross-platform customizer (**Linux, macOS, and Windows**) for **WezTerm** that hot-reloads tab bar themes, custom symbols, monospace/Nerd Fonts, color schemes, and window appearance in real time — with **zero external dependencies** (100% Python `>= 3.10` standard library).
 
-![WezTerm After Customizing with WezTerm Studio](docs/images/customized-terminals.png)
+![WezTerm After Customizing with WezTerm Studio](https://raw.githubusercontent.com/mvsoares/wezterm-studio/main/docs/images/customized-terminals.png)
 
 It combines a fast **CLI**, an **ANSI TrueColor TUI**, and a **Local Web Studio** into a single package:
 
@@ -24,39 +25,44 @@ It combines a fast **CLI**, an **ANSI TrueColor TUI**, and a **Local Web Studio*
 ### 1. Tab Bar Styles & Hue-Adaptive Symbols
 Every theme enforces WCAG contrast and uniform character width so tabs never jump as directory names or active processes change. You can keep each theme's native style or layer custom CIE LCh hue-matched symbols on top:
 
-![12 Sample Styles from the 60-Theme Tab Bar Catalog](docs/images/tab-styles-showcase.png)
+![12 Sample Styles from the 60-Theme Tab Bar Catalog](https://raw.githubusercontent.com/mvsoares/wezterm-studio/main/docs/images/tab-styles-showcase.png)
 
 ### 2. Browser Web Studio — Tab Themes & Symbol Builder (`wezterm-theme web`)
 Interactive live preview of all 60 4-tab bar themes, fixed-width slider, category filters, and 1-click Symbol Builder that hot-reloads WezTerm immediately:
 
-![WezTerm Studio Browser UI — Tab Bar Themes & Symbol Builder](docs/images/web-studio-tabs.png)
+![WezTerm Studio Browser UI — Tab Bar Themes & Symbol Builder](https://raw.githubusercontent.com/mvsoares/wezterm-studio/main/docs/images/web-studio-tabs.png)
 
 ### 3. Browser Web Studio — Live Font & Nerd Font Picker
 Renders your actual installed system fonts with programming ligature specimens (`!= === >= =>`), Nerd Font glyph strips, and separate **Apply to Editor** / **Apply to Tabs** actions:
 
-![WezTerm Studio Browser UI — Fonts & Nerd Fonts](docs/images/web-studio-fonts.png)
+![WezTerm Studio Browser UI — Fonts & Nerd Fonts](https://raw.githubusercontent.com/mvsoares/wezterm-studio/main/docs/images/web-studio-fonts.png)
 
 ### 4. Interactive ANSI TrueColor Terminal Picker (`wezterm-theme`)
 Prefer staying in the terminal or working over SSH? Run `wezterm-theme` with no arguments for the full TrueColor TUI:
 
-![WezTerm Studio Interactive ANSI TrueColor TUI](docs/images/tui-preview.png)
+![WezTerm Studio Interactive ANSI TrueColor TUI](https://raw.githubusercontent.com/mvsoares/wezterm-studio/main/docs/images/tui-preview.png)
 
 ---
 
 ## 📦 Installation
 
-### Direct from GitHub (`pipx`, `uv`, or `pip`)
+### Quick Install (`pipx`, `uv`, or `pip`)
 
 ```bash
-# Recommended: pipx
+# Recommended: pipx (from GitHub or PyPI once published)
 pipx install git+https://github.com/mvsoares/wezterm-studio.git
 
-# Or via uv
+# Or via uv (persistent tool install)
 uv tool install git+https://github.com/mvsoares/wezterm-studio.git
+
+# Zero-install instant run with uvx
+uvx --from git+https://github.com/mvsoares/wezterm-studio.git wezterm-theme
 
 # Or via pip
 pip install --user git+https://github.com/mvsoares/wezterm-studio.git
 ```
+
+> Once published on PyPI (`wezterm-theme`), you can also run simply `pipx install wezterm-theme` or `uvx wezterm-theme`.
 
 ### Local Clone / Editable Development Install
 
@@ -163,4 +169,4 @@ python3 -m unittest discover -s tests -v
 
 ## 📄 License
 
-[MIT License](LICENSE) © Marcus Vinícius Soares.
+[MIT License](https://github.com/mvsoares/wezterm-studio/blob/main/LICENSE) © Marcus Vinícius Soares.
