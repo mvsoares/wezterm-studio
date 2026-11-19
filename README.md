@@ -13,10 +13,10 @@
 
 It combines a fast **CLI**, an **ANSI TrueColor TUI**, and a **Local Web Studio** into a single package:
 
-- 🎨 **60 Tab Bar Themes** across 6 curated categories (*Google & Material*, *Powerline & Geometry*, *Developer Palettes*, *Synth & Cyberpunk*, *Nature & Earth Tones*, and *Minimal, Badges & CRT*) with verified WCAG contrast and configurable fixed tab width (`TAB_TITLE_LEN`).
+- 🎨 **62 Tab Bar Themes** across 6 curated categories (*Google & Material*, *Powerline & Geometry*, *Developer Palettes*, *Synth & Cyberpunk*, *Nature & Earth Tones*, and *Minimal, Badges & CRT*) — including dynamic **Scheme-Adaptive Powerline** (`#61`) and **Workspace Chameleon** (`#62`), OSC `9;4` progress & split/zoom indicators, mouse hover highlights, verified WCAG contrast, and configurable fixed tab width (`TAB_TITLE_LEN`).
 - ✦ **Tab Bar Symbol Builder** — mix active tab prefixes, CIE LCh hue-adaptive markers, Powerline/chevron arrows, and inactive tab indicators.
-- 🔤 **Live Font & Nerd Font Picker** — automatically discovers installed monospace and Nerd Fonts via `wezterm ls-fonts`, FontConfig, CoreText, and DirectWrite, with independent family, weight, and size controls for **Editor** and **Tab Bar**.
-- 🖥 **1,100+ Built-in Color Schemes & Window Controls** — search and apply WezTerm color schemes, window opacity, inner padding, decorations, cursor style, line height, and scrollback.
+- 🔤 **Live Font, Ligature & Nerd Font Picker** — automatically discovers installed monospace and Nerd Fonts via `wezterm ls-fonts`, FontConfig, CoreText, and DirectWrite, with independent family, weight, and size controls for **Editor** and **Tab Bar**, plus a 1-click HarfBuzz ligatures toggle (`calt`/`clig`/`liga`).
+- 🖥 **1,100+ Color Schemes, Dark/Light Auto-Switching, Status Bar & Window Controls** — search and apply WezTerm color schemes (with optional OS Light-mode companion scheme), optional theme-tinted Studio right-status bar (instant leader/mode pill, mux/workspace, `wezterm.GLOBAL` cached git branch, battery, clock), inactive split-pane dimming (`inactive_pane_hsb`), subtle GPU `Oklab` radial gradients, 1px theme-accented frame borders, window opacity, padding, decorations, cursor style, line height, and scrollback.
 - 💾 **Instant Backups & Portable JSON Presets** — automatic pre-validation via `wezterm` with rollback protection, timestamped backups, and OS-agnostic JSON presets shareable across Linux, macOS, and Windows.
 
 ---
@@ -29,7 +29,7 @@ Every theme enforces WCAG contrast and uniform character width so tabs never jum
 ![12 Sample Styles from the 60-Theme Tab Bar Catalog](https://raw.githubusercontent.com/mvsoares/wezterm-studio/main/docs/images/tab-styles-showcase.png)
 
 ### 2. Browser Web Studio — Tab Themes & Symbol Builder (`wezterm-theme web`)
-Interactive live preview of all 60 4-tab bar themes, fixed-width slider, category filters, and 1-click Symbol Builder that hot-reloads WezTerm immediately:
+Interactive live preview of all 62 4-tab bar themes, fixed-width slider, category filters, and 1-click Symbol Builder that hot-reloads WezTerm immediately:
 
 ![WezTerm Studio Browser UI — Tab Bar Themes & Symbol Builder](https://raw.githubusercontent.com/mvsoares/wezterm-studio/main/docs/images/web-studio-tabs.png)
 
@@ -97,7 +97,7 @@ wezterm-theme web
 # or: wezterm-theme -w
 ```
 
-Opens `http://127.0.0.1:7777` with live rendering of your installed fonts, programming ligatures (`!= === >= =>`), Nerd Font glyph previews, all 60 4-tab theme cards, interactive symbol composer, appearance sliders, and 1-click live application to WezTerm.
+Opens `http://127.0.0.1:7777` with live rendering of your installed fonts, programming ligatures (`!= === >= =>`), Nerd Font glyph previews, all 62 4-tab theme cards, interactive symbol composer, appearance sliders, and 1-click live application to WezTerm.
 
 ### 3. Open the Interactive TrueColor Terminal Picker (TUI)
 
@@ -106,10 +106,10 @@ wezterm-theme
 ```
 
 Keyboard commands inside the TUI:
-- `[1-60]` — Apply a tab bar theme immediately
+- `[1-62]` — Apply a tab bar theme immediately
 - `[s]` — Open the interactive Tab Bar Symbol Builder
-- `[f]` — Open the interactive Font & Size Picker (Editor + Tab Bar)
-- `[cs]` — Open the Terminal Color Scheme Picker
+- `[f]` — Open the interactive Font, Size & Ligature Picker (Editor + Tab Bar)
+- `[cs]` — Open the Terminal Color Scheme & Window Extras Picker
 - `[w]` — Launch Web Studio in your default browser
 - `[c1]..[c6]` / `[/query]` — Filter by category or search keyword
 - `[len 15]` — Set fixed tab title character width (`4`–`60`)
@@ -122,13 +122,16 @@ Keyboard commands inside the TUI:
 ```bash
 # Apply a tab theme by ID or slug + set fixed tab width
 wezterm-theme -s 8 -t 15
-wezterm-theme -s catppuccin-mocha
+wezterm-theme -s scheme-adaptive-powerline
+wezterm-theme -s workspace-chameleon
 
-# Set Editor and Tab Bar fonts & sizes
+# Set Editor and Tab Bar fonts, sizes & programming ligatures
 wezterm-theme --font "JetBrainsMono Nerd Font" --size 13.5 --tab-font "JetBrainsMono Nerd Font" --tab-size 11.5
+wezterm-theme --no-ligatures
 
-# Set WezTerm color scheme, window opacity, and padding
-wezterm-theme --scheme "Catppuccin Mocha" --opacity 0.95 --padding 10
+# Set Dark + Light companion schemes, status bar, inactive pane dimming, Oklab gradient & 1px accent border
+wezterm-theme --scheme "Catppuccin Mocha" --light-scheme "Catppuccin Latte" --opacity 0.95 --padding 10
+wezterm-theme --status-bar --dim-inactive 0.78 --gradient --border
 
 # Inspect installed fonts, theme catalog, active status, or diagnostics
 wezterm-theme fonts --nerd
@@ -163,6 +166,21 @@ All unit and integration tests isolate WezTerm configuration via `WEZTERM_CONFIG
 ```bash
 python3 -m unittest discover -s tests -v
 ```
+
+---
+
+## 🙏 Credits & Community Inspirations
+
+`v1.2.0` incorporates workflow, tab-bar, status-bar, and appearance ideas shared by the WezTerm community:
+
+- **[Rashil Gandhi — *"How to Obsessively Tune WezTerm"*](https://rashil2000.me/blogs/tune-wezterm):** runtime `resolved_palette` + `wezterm.color.gradient` adaptive tabs, OS Dark/Light appearance auto-switching, native OSC `9;4` progress reporting, cross-shell `WEZTERM_CMD` / `WEZTERM_PROG` detection, non-blocking `wezterm.run_child_process` git status, mux domain/latency indicators, and custom `open-uri` workflows.
+- **[WezTerm GitHub Discussion #628 (*"Show your wezterms"*)](https://github.com/wezterm/wezterm/discussions/628):**
+  - **[`@wez`](https://github.com/wez) (Wez Furlong):** WezTerm itself, plus `wezterm.GLOBAL` hot-reload-persistent state caching and launcher tips.
+  - **[`@gsuuon`](https://github.com/gsuuon):** deterministic workspace-hashed tab/bar accent coloring (*Workspace Chameleon*).
+  - **[`@sravioli`](https://github.com/sravioli), [`@cstrahan`](https://github.com/cstrahan) & [`@GrzegorzKozub`](https://github.com/GrzegorzKozub):** instant `⚡ LEADER` & active key-table modal status pills and responsive status-bar width handling.
+  - **[`@cstrahan`](https://github.com/cstrahan), [`@UnderCooled`](https://github.com/UnderCooled) & [`@GrzegorzKozub`](https://github.com/GrzegorzKozub):** zoomed-pane (`is_zoomed`) & split-count tab badges, HarfBuzz ligatures toggle, and stack-trace `file:line` `$EDITOR` hyperlinks.
+  - **[`@bennypowers`](https://github.com/bennypowers), [`@cstrahan`](https://github.com/cstrahan) & [`@robsonjorgefernandez`](https://github.com/robsonjorgefernandez):** inactive split-pane dimming (`inactive_pane_hsb`), accented split dividers (`colors.split`), and mouse `hover` tab highlights.
+  - **[`@mazznoer`](https://github.com/mazznoer), [`@robsonjorgefernandez`](https://github.com/robsonjorgefernandez) & [`@habahabahaba`](https://github.com/habahabahaba):** GPU `Oklab` radial background gradients and 1px theme-accented `window_frame` borders.
 
 ---
 
