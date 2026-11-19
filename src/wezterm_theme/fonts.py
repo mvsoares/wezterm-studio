@@ -146,40 +146,45 @@ _WEIGHT_ORDER = [
     "ExtraBlack",
 ]
 
-_FALLBACK_SCHEMES = [
-    "Builtin Dark",
-    "Catppuccin Frappe",
-    "Catppuccin Latte",
-    "Catppuccin Macchiato",
-    "Catppuccin Mocha",
-    "Cyberdyne",
-    "Dracula",
-    "Dracula (Official)",
-    "Everforest Dark (Gogh)",
-    "GitHub Dark",
-    "Gruvbox Dark (Gogh)",
-    "Gruvbox Material (Gogh)",
-    "Kanagawa (Gogh)",
-    "Material Darker (base16)",
-    "Monokai Pro (Gogh)",
-    "Monokai Remastered",
-    "Monokai Vivid",
-    "Nightfox",
-    "Nord",
-    "OneDark (base16)",
-    "Outrun Dark (base16)",
-    "Poimandres",
-    "rose-pine",
-    "rose-pine-moon",
-    "Solarized Dark (Gogh)",
-    "SynthWave 84",
-    "Tokyo Night",
-    "Tokyo Night Moon",
-    "Tokyo Night Storm",
+_FALLBACK_SCHEME_PALETTES: list[dict[str, Any]] = [
+    {"name": "Builtin Dark", "bg": "#000000", "fg": "#bbbbbb", "cursor": "#bbbbbb", "ansi": ["#000000", "#bb0000", "#00bb00", "#bbbb00", "#0000bb", "#bb00bb", "#00bbbb", "#bbbbbb"], "is_dark": True},
+    {"name": "Catppuccin Frappe", "bg": "#303446", "fg": "#c6d0f5", "cursor": "#f2d5cf", "ansi": ["#51576d", "#e78284", "#a6d189", "#e5c890", "#8caaee", "#f4b8e4", "#81c8be", "#b5bfe2"], "is_dark": True},
+    {"name": "Catppuccin Latte", "bg": "#eff1f5", "fg": "#4c4f69", "cursor": "#dc8a78", "ansi": ["#5c5f77", "#d20f39", "#40a02b", "#df8e1d", "#1e66f5", "#ea76cb", "#179299", "#acb0be"], "is_dark": False},
+    {"name": "Catppuccin Macchiato", "bg": "#24273a", "fg": "#cad3f5", "cursor": "#f4dbd6", "ansi": ["#494d64", "#ed8796", "#a6da95", "#eed49f", "#8aadf4", "#f5bde6", "#8bd5ca", "#b8c0e0"], "is_dark": True},
+    {"name": "Catppuccin Mocha", "bg": "#1e1e2e", "fg": "#cdd6f4", "cursor": "#f5e0dc", "ansi": ["#45475a", "#f38ba8", "#a6e3a1", "#f9e2af", "#89b4fa", "#f5c2e7", "#94e2d5", "#bac2de"], "is_dark": True},
+    {"name": "Cyberdyne", "bg": "#151144", "fg": "#00ff92", "cursor": "#00ff9c", "ansi": ["#080808", "#ff8373", "#00c172", "#d2a700", "#0071cf", "#ff90fe", "#6bffdd", "#f1f1f1"], "is_dark": True},
+    {"name": "Dracula", "bg": "#282a36", "fg": "#f8f8f2", "cursor": "#f8f8f2", "ansi": ["#21222c", "#ff5555", "#50fa7b", "#f1fa8c", "#bd93f9", "#ff79c6", "#8be9fd", "#f8f8f2"], "is_dark": True},
+    {"name": "Dracula (Official)", "bg": "#282a36", "fg": "#f8f8f2", "cursor": "#f8f8f2", "ansi": ["#21222c", "#ff5555", "#50fa7b", "#f1fa8c", "#bd93f9", "#ff79c6", "#8be9fd", "#f8f8f2"], "is_dark": True},
+    {"name": "Everforest Dark (Gogh)", "bg": "#2d353b", "fg": "#d3c6aa", "cursor": "#d3c6aa", "ansi": ["#475258", "#e67e80", "#a7c080", "#dbbc7f", "#7fbbb3", "#d699b6", "#83c092", "#d3c6aa"], "is_dark": True},
+    {"name": "GitHub Dark", "bg": "#101216", "fg": "#8b949e", "cursor": "#c9d1d9", "ansi": ["#000000", "#f78166", "#56d364", "#e3b341", "#6ca4f8", "#db61a2", "#2b7489", "#ffffff"], "is_dark": True},
+    {"name": "Gruvbox Dark (Gogh)", "bg": "#282828", "fg": "#ebdbb2", "cursor": "#ebdbb2", "ansi": ["#282828", "#cc241d", "#98971a", "#d79921", "#458588", "#b16286", "#689d6a", "#a89984"], "is_dark": True},
+    {"name": "Gruvbox Light", "bg": "#fbf1c7", "fg": "#3c3836", "cursor": "#3c3836", "ansi": ["#fbf1c7", "#cc241d", "#98971a", "#d79921", "#458588", "#b16286", "#689d6a", "#7c6f64"], "is_dark": False},
+    {"name": "Gruvbox Material (Gogh)", "bg": "#282828", "fg": "#d4be98", "cursor": "#d4be98", "ansi": ["#3c3836", "#ea6962", "#a9b665", "#d8a657", "#7daea3", "#d3869b", "#89b482", "#d4be98"], "is_dark": True},
+    {"name": "Kanagawa (Gogh)", "bg": "#1f1f28", "fg": "#dcd7ba", "cursor": "#c8c093", "ansi": ["#090618", "#c34043", "#76946a", "#c0a36e", "#7e9cd8", "#957fb8", "#6a9589", "#c8c093"], "is_dark": True},
+    {"name": "Material Darker (base16)", "bg": "#212121", "fg": "#eeffff", "cursor": "#eeffff", "ansi": ["#212121", "#f07178", "#c3e88d", "#ffcb6b", "#82aaff", "#c792ea", "#89ddff", "#eeffff"], "is_dark": True},
+    {"name": "Monokai Pro (Gogh)", "bg": "#2d2a2e", "fg": "#fcfcfa", "cursor": "#fcfcfa", "ansi": ["#403e41", "#ff6188", "#a9dc76", "#ffd866", "#fc9867", "#ab9df2", "#78dce8", "#fcfcfa"], "is_dark": True},
+    {"name": "Monokai Remastered", "bg": "#0c0c0c", "fg": "#d9d9d9", "cursor": "#fc971f", "ansi": ["#1a1a1a", "#f4005f", "#98e024", "#fd971f", "#9d65ff", "#f4005f", "#58d1eb", "#c4c5b5"], "is_dark": True},
+    {"name": "Monokai Vivid", "bg": "#121212", "fg": "#f9f9f9", "cursor": "#fb0007", "ansi": ["#121212", "#fa2934", "#98e123", "#fff30a", "#0443ff", "#f800f8", "#01b6ed", "#ffffff"], "is_dark": True},
+    {"name": "Nightfox", "bg": "#192330", "fg": "#cdcecf", "cursor": "#cdcecf", "ansi": ["#393b44", "#c94f6d", "#81b29a", "#dbc074", "#719cd6", "#9d79d6", "#63cdcf", "#dfdfe0"], "is_dark": True},
+    {"name": "Nord", "bg": "#2e3440", "fg": "#d8dee9", "cursor": "#d8dee9", "ansi": ["#3b4252", "#bf616a", "#a3be8c", "#ebcb8b", "#81a1c1", "#b48ead", "#88c0d0", "#e5e9f0"], "is_dark": True},
+    {"name": "OneDark (base16)", "bg": "#282c34", "fg": "#abb2bf", "cursor": "#abb2bf", "ansi": ["#282c34", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#abb2bf"], "is_dark": True},
+    {"name": "Outrun Dark (base16)", "bg": "#00002a", "fg": "#d0d0fa", "cursor": "#d0d0fa", "ansi": ["#00002a", "#ff4242", "#59f176", "#f3e877", "#66b0ff", "#f10596", "#0ef0f0", "#d0d0fa"], "is_dark": True},
+    {"name": "Poimandres", "bg": "#1b1e28", "fg": "#a6accd", "cursor": "#a6accd", "ansi": ["#1b1e28", "#d0679d", "#5de4c7", "#fffac2", "#89ddff", "#fcc5e9", "#add7ff", "#ffffff"], "is_dark": True},
+    {"name": "rose-pine", "bg": "#191724", "fg": "#e0def4", "cursor": "#e0def4", "ansi": ["#26233a", "#eb6f92", "#31748f", "#f6c177", "#9ccfd8", "#c4a7e7", "#ebbcba", "#e0def4"], "is_dark": True},
+    {"name": "rose-pine-dawn", "bg": "#faf4ed", "fg": "#575279", "cursor": "#575279", "ansi": ["#f2e9e1", "#b4637a", "#286983", "#ea9d34", "#56949f", "#907aa9", "#d7827e", "#575279"], "is_dark": False},
+    {"name": "rose-pine-moon", "bg": "#232136", "fg": "#e0def4", "cursor": "#e0def4", "ansi": ["#393552", "#eb6f92", "#3e8fb0", "#f6c177", "#9ccfd8", "#c4a7e7", "#ea9a97", "#e0def4"], "is_dark": True},
+    {"name": "Solarized Dark (Gogh)", "bg": "#002b36", "fg": "#839496", "cursor": "#839496", "ansi": ["#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5"], "is_dark": True},
+    {"name": "Solarized Light (Gogh)", "bg": "#fdf6e3", "fg": "#657b83", "cursor": "#657b83", "ansi": ["#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5"], "is_dark": False},
+    {"name": "SynthWave 84", "bg": "#262335", "fg": "#ffffff", "cursor": "#ff7edb", "ansi": ["#262335", "#fe4450", "#72f1b8", "#fede5d", "#03edf9", "#ff7edb", "#03edf9", "#ffffff"], "is_dark": True},
+    {"name": "Tokyo Night", "bg": "#1a1b26", "fg": "#c0caf5", "cursor": "#c0caf5", "ansi": ["#15161e", "#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7", "#7dcfff", "#a9b1d6"], "is_dark": True},
+    {"name": "Tokyo Night Day", "bg": "#e1e2e7", "fg": "#3760bf", "cursor": "#3760bf", "ansi": ["#e9e9ed", "#f52a65", "#587539", "#8c6c3e", "#2e7de9", "#9854f1", "#007197", "#6172b0"], "is_dark": False},
+    {"name": "Tokyo Night Moon", "bg": "#222436", "fg": "#c8d3f5", "cursor": "#c8d3f5", "ansi": ["#1b1d2b", "#ff757f", "#c3e88d", "#ffc777", "#82aaff", "#c099ff", "#86e1fc", "#828bb8"], "is_dark": True},
+    {"name": "Tokyo Night Storm", "bg": "#24283b", "fg": "#c0caf5", "cursor": "#c0caf5", "ansi": ["#1d202f", "#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7", "#7dcfff", "#a9b1d6"], "is_dark": True},
 ]
 
 _FONTS_CACHE: list[dict[str, Any]] | None = None
 _SCHEMES_CACHE: list[str] | None = None
+_SCHEME_PALETTES_CACHE: list[dict[str, Any]] | None = None
 
 _WEZTERM_FONT_RE = re.compile(
     r'wezterm\.font\(\s*"([^"]+)"(?:\s*,\s*\{([^}]*)\})?\s*\)'
@@ -377,49 +382,82 @@ def get_installed_fonts(refresh: bool = False) -> list[dict[str, Any]]:
     return fonts
 
 
-_SCHEME_LUA_TEMPLATE = """\
+_SCHEME_PALETTE_LUA_TEMPLATE = """\
 local wezterm = require 'wezterm'
 local config = wezterm.config_builder()
-local names = {}
-for name, _ in pairs(wezterm.color.get_builtin_schemes()) do
-  table.insert(names, name)
+local function norm(c, fb)
+  local ok, col = pcall(wezterm.color.parse, c or fb)
+  if not ok or not col then return fb end
+  local r, g, b, _ = col:srgba_u8()
+  return string.format('#%02x%02x%02x', r, g, b)
 end
-table.sort(names)
+local out = {}
+for name, s in pairs(wezterm.color.get_builtin_schemes()) do
+  local bg = norm(s.background, '#000000')
+  local fg = norm(s.foreground, '#ffffff')
+  local cur = norm(s.cursor_bg or s.foreground, fg)
+  local ansi = {}
+  for i = 1, 8 do
+    ansi[i] = norm(s.ansi and s.ansi[i], '#888888')
+  end
+  table.insert(out, {
+    name = name,
+    bg = bg,
+    fg = fg,
+    cursor = cur,
+    ansi = ansi,
+  })
+end
+table.sort(out, function(a, b) return a.name < b.name end)
 local encode = (wezterm.serde and wezterm.serde.json_encode) or wezterm.json_encode
 local f = io.open([==[__JSON_PATH__]==], 'w')
 if f then
-  f:write(encode(names))
+  f:write(encode(out))
   f:close()
 end
 return config
 """
 
 
-def get_color_schemes(refresh: bool = False) -> list[str]:
-    """Return WezTerm's built-in color scheme names (memory + disk cached for instant startup)."""
-    global _SCHEMES_CACHE
-    if _SCHEMES_CACHE is not None and not refresh:
-        return _SCHEMES_CACHE
+def _hex_is_dark(hex_color: str) -> bool:
+    h = hex_color.lstrip("#")
+    if len(h) != 6:
+        return True
+    try:
+        c = [int(h[i : i + 2], 16) / 255.0 for i in (0, 2, 4)]
+        c = [x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
+        lum = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+        return lum < 0.35
+    except ValueError:
+        return True
 
-    cache_file = get_cache_dir() / "color_schemes.json"
+
+def get_color_scheme_palettes(refresh: bool = False) -> list[dict[str, Any]]:
+    """Return WezTerm built-in color schemes with normalized hex swatches and dark/light flag."""
+    global _SCHEME_PALETTES_CACHE, _SCHEMES_CACHE
+    if _SCHEME_PALETTES_CACHE is not None and not refresh:
+        return _SCHEME_PALETTES_CACHE
+
+    cache_file = get_cache_dir() / "color_scheme_palettes.json"
     if not refresh and cache_file.is_file():
         try:
             cached = json.loads(cache_file.read_text(encoding="utf-8"))
-            if isinstance(cached, list) and len(cached) > 50:
-                _SCHEMES_CACHE = cached
+            if isinstance(cached, list) and len(cached) > 50 and isinstance(cached[0], dict) and "bg" in cached[0]:
+                _SCHEME_PALETTES_CACHE = cached
+                _SCHEMES_CACHE = [item["name"] for item in cached]
                 return cached
         except Exception:
             pass
 
     wz = find_wezterm_cmd()
-    schemes: list[str] = []
+    palettes: list[dict[str, Any]] = []
     if wz:
         try:
             with tempfile.TemporaryDirectory() as tmp:
-                lua_path = Path(tmp) / "dump_schemes.lua"
-                json_path = Path(tmp) / "schemes.json"
+                lua_path = Path(tmp) / "dump_palettes.lua"
+                json_path = Path(tmp) / "palettes.json"
                 lua_path.write_text(
-                    _SCHEME_LUA_TEMPLATE.replace("__JSON_PATH__", json_path.as_posix()),
+                    _SCHEME_PALETTE_LUA_TEMPLATE.replace("__JSON_PATH__", json_path.as_posix()),
                     encoding="utf-8",
                 )
                 subprocess.run(
@@ -430,19 +468,42 @@ def get_color_schemes(refresh: bool = False) -> list[str]:
                     check=False,
                 )
                 if json_path.is_file():
-                    schemes = json.loads(json_path.read_text(encoding="utf-8"))
+                    raw_list = json.loads(json_path.read_text(encoding="utf-8"))
+                    if isinstance(raw_list, list):
+                        for entry in raw_list:
+                            if isinstance(entry, dict) and entry.get("name"):
+                                bg = str(entry.get("bg") or "#000000")
+                                palettes.append({
+                                    "name": str(entry["name"]),
+                                    "bg": bg,
+                                    "fg": str(entry.get("fg") or "#ffffff"),
+                                    "cursor": str(entry.get("cursor") or "#ffffff"),
+                                    "ansi": list(entry.get("ansi") or [])[:8],
+                                    "is_dark": _hex_is_dark(bg),
+                                })
         except Exception:
-            schemes = []
+            palettes = []
 
-    if not schemes:
-        schemes = list(_FALLBACK_SCHEMES)
+    if not palettes:
+        palettes = [dict(p) for p in _FALLBACK_SCHEME_PALETTES]
 
-    if len(schemes) > 50:
+    if len(palettes) > 50:
         try:
             cache_file.parent.mkdir(parents=True, exist_ok=True)
-            cache_file.write_text(json.dumps(schemes, ensure_ascii=False), encoding="utf-8")
+            cache_file.write_text(json.dumps(palettes, ensure_ascii=False), encoding="utf-8")
         except OSError:
             pass
 
-    _SCHEMES_CACHE = schemes
-    return schemes
+    _SCHEME_PALETTES_CACHE = palettes
+    _SCHEMES_CACHE = [item["name"] for item in palettes]
+    return palettes
+
+
+def get_color_schemes(refresh: bool = False) -> list[str]:
+    """Return WezTerm's built-in color scheme names (memory + disk cached for instant startup)."""
+    global _SCHEMES_CACHE
+    if _SCHEMES_CACHE is not None and not refresh:
+        return _SCHEMES_CACHE
+    palettes = get_color_scheme_palettes(refresh=refresh)
+    _SCHEMES_CACHE = [p["name"] for p in palettes]
+    return _SCHEMES_CACHE

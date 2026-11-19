@@ -63,6 +63,9 @@ DEFAULT_APPEARANCE: dict[str, Any] = {
     "status_bar": None,
     "open_in_editor": None,
     "editor_cmd": None,
+    "agent_indicators": None,
+    "ssh_alert": None,
+    "command_palette": None,
 }
 
 
@@ -207,6 +210,12 @@ def _extract_loader_appearance(merged: dict[str, Any], settings_only: dict[str, 
     if hl.get("open_in_editor") is not None:
         app["open_in_editor"] = bool(hl.get("open_in_editor"))
     app["editor_cmd"] = hl.get("editor") or None
+    if tb.get("agent_indicators") is not None:
+        app["agent_indicators"] = bool(tb.get("agent_indicators"))
+    if tb.get("ssh_alert") is not None:
+        app["ssh_alert"] = bool(tb.get("ssh_alert"))
+    if tb.get("command_palette") is not None:
+        app["command_palette"] = bool(tb.get("command_palette"))
     return app
 
 
@@ -619,6 +628,16 @@ def _sync_loader_settings(
         if "status_bar" in appearance_updates and appearance_updates["status_bar"] is not None:
             st_sec = data.setdefault("status", {})
             st_sec["enabled"] = bool(appearance_updates["status_bar"])
+        if "agent_indicators" in appearance_updates and appearance_updates["agent_indicators"] is not None:
+            tabs["agent_indicators"] = bool(appearance_updates["agent_indicators"])
+            st_sec = data.setdefault("status", {})
+            st_sec["agent_toast"] = bool(appearance_updates["agent_indicators"])
+        if "ssh_alert" in appearance_updates and appearance_updates["ssh_alert"] is not None:
+            tabs["ssh_alert"] = bool(appearance_updates["ssh_alert"])
+            st_sec = data.setdefault("status", {})
+            st_sec["ssh_host"] = bool(appearance_updates["ssh_alert"])
+        if "command_palette" in appearance_updates and appearance_updates["command_palette"] is not None:
+            tabs["command_palette"] = bool(appearance_updates["command_palette"])
         if "open_in_editor" in appearance_updates or "editor_cmd" in appearance_updates:
             hl = data.setdefault("hyperlinks", {})
             if "open_in_editor" in appearance_updates and appearance_updates["open_in_editor"] is not None:
@@ -807,8 +826,17 @@ def apply_theme(
             appearance_updates=appearance_updates,
         )
         new_settings = _read_json_safe(paths["settings_json"])
+        merged_after = _deep_merge(_read_json_safe(paths["defaults_json"]), new_settings)
+        merged_tabs = merged_after.get("tabs") if isinstance(merged_after.get("tabs"), dict) else {}
         user_fancy = (new_settings.get("tabs") or {}).get("fancy") if isinstance(new_settings.get("tabs"), dict) else None
-        loader_app = {"_loader_only": True, "use_fancy_tab_bar": user_fancy} if isinstance(user_fancy, bool) else None
+        loader_app: dict[str, Any] = {
+            "_loader_only": True,
+            "agent_indicators": merged_tabs.get("agent_indicators"),
+            "ssh_alert": merged_tabs.get("ssh_alert"),
+            "command_palette": merged_tabs.get("command_palette"),
+        }
+        if isinstance(user_fancy, bool):
+            loader_app["use_fancy_tab_bar"] = user_fancy
         lua_code = generate_lua_for_theme(theme, tab_title_len=eff_len, symbols=eff_syms, appearance=loader_app)
         err = _install_module_transactional(paths["tab_theme_lua"], lua_code, paths)
         if err is not None:

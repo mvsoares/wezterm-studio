@@ -483,6 +483,74 @@
     }
     .fc-actions button { flex: 1; }
 
+    /* ── Color Scheme Visual Swatch Grid ── */
+    .schemes-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+      gap: 14px;
+    }
+    .scheme-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 13px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: border-color 0.15s, transform 0.12s;
+    }
+    .scheme-card:hover { border-color: #3f4b66; }
+    .scheme-card.is-dark-active { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.35); }
+    .scheme-card.is-light-active { box-shadow: inset 0 0 0 1px var(--amber); }
+    .sc-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .sc-name {
+      font-weight: 700;
+      font-size: 0.9rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sc-badges { display: flex; gap: 5px; align-items: center; flex-shrink: 0; }
+    .sc-mode {
+      font-size: 0.65rem;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+    .sc-mode.dark { background: rgba(96, 165, 250, 0.16); color: #93c5fd; }
+    .sc-mode.light { background: rgba(251, 191, 36, 0.18); color: var(--amber); }
+    .sc-term {
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-family: var(--tab-preview-font, "JetBrains Mono", ui-monospace, monospace);
+      font-size: 0.78rem;
+      line-height: 1.48;
+      border: 1px solid rgba(128, 128, 128, 0.24);
+      overflow: hidden;
+    }
+    .sc-bars {
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: 4px;
+    }
+    .sc-bar-chip {
+      height: 12px;
+      border-radius: 3px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    .sc-foot {
+      display: flex;
+      gap: 6px;
+      margin-top: auto;
+    }
+    .sc-foot button { flex: 1; font-size: 0.76rem; padding: 6px 8px; }
+
     /* ── Appearance & Settings Cards ── */
     .settings-grid {
       display: grid;
@@ -636,8 +704,9 @@
       <nav class="nav-tabs">
         <button class="nav-tab active" id="navThemesTab" data-view="themes">🎨 Tab Bar Themes (62)</button>
         <button class="nav-tab" id="navSymbolsTab" data-view="symbols">✦ Tab Symbols [s]</button>
+        <button class="nav-tab" id="navSchemesTab" data-view="schemes">🌈 Color Schemes</button>
         <button class="nav-tab" data-view="fonts">🔤 Fonts &amp; Sizes [f]</button>
-        <button class="nav-tab" data-view="appearance">🖥 Colors, Tabs, Window &amp; $EDITOR [cs]</button>
+        <button class="nav-tab" data-view="appearance">🖥 Tabs, Radars, Window &amp; $EDITOR [cs]</button>
         <button class="nav-tab" data-view="backups">💾 Backups &amp; Presets [b/u]</button>
       </nav>
     </div>
@@ -686,6 +755,22 @@
         <div class="sym-preview-box" id="symPreviewBox" style="margin-bottom:0;"></div>
         <div id="symBreakdown" style="font-family:ui-monospace,monospace;font-size:0.8rem;color:var(--sub);"></div>
         <div class="sym-groups" id="symGroupsBox" style="margin-bottom:0;"></div>
+      </div>
+    </section>
+
+    <!-- ── TAB 2B: VISUAL COLOR SCHEMES EXPLORER ── -->
+    <section class="view-pane" id="view-schemes">
+      <div class="toolbar">
+        <input class="search-input" id="schemeSearch" type="search" placeholder="Search 1,100+ terminal color schemes (e.g. catppuccin, tokyo, kanagawa, gruvbox, rose-pine, solarized)...">
+        <button class="pill-btn active" id="filterAllSchemes">All</button>
+        <button class="pill-btn" id="filterDarkSchemes">🌙 Dark</button>
+        <button class="pill-btn" id="filterLightSchemes">☀ Light</button>
+        <span id="activeSchemesSummary" style="font-size:0.8rem;color:var(--sub);"></span>
+        <span id="schemeCount" style="color:var(--sub);font-size:0.82rem;margin-left:auto;"></span>
+      </div>
+      <div class="schemes-grid" id="schemesGrid"></div>
+      <div id="moreSchemesWrap" style="display:none;text-align:center;margin-top:18px;">
+        <button class="btn btn-primary" id="moreSchemesBtn">Show More Schemes</button>
       </div>
     </section>
 
@@ -782,13 +867,16 @@
             </div>
           </div>
           <div>
-            <div style="font-size:0.76rem;color:var(--sub);margin-bottom:8px;">Quick favorites (1-click):</div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;">
+              <span style="font-size:0.76rem;color:var(--sub);">Quick favorites (1-click):</span>
+              <button class="btn btn-purple" id="openSchemesBrowserBtn" style="font-size:0.74rem;padding:4px 10px;">🌈 Browse All Visual Swatches</button>
+            </div>
             <div class="chips-wrap" id="quickSchemes"></div>
           </div>
         </div>
 
         <div class="s-card">
-          <h3>🗂 Tab Bar Sizing &amp; Status Bar</h3>
+          <h3>🗂 Tab Bar, Smart Radars &amp; Palette</h3>
           <div class="s-row">
             <label for="cardTabLen">Tab title width (4–60 chars)</label>
             <input id="cardTabLen" type="number" min="4" max="60" step="1" value="15">
@@ -820,6 +908,18 @@
           <div class="s-row">
             <label for="statusBarCheck" title="Theme-tinted right status bar showing leader/mode pill, workspace/mux domain, cached git branch, battery, and clock">Enable Studio right-status bar (mode · git · mux · clock)</label>
             <input id="statusBarCheck" type="checkbox">
+          </div>
+          <div class="s-row">
+            <label for="agentRadarCheck" title="Detects Claude Code, Gemini CLI, Antigravity, Codex, Aider, OpenCode, Goose, Cline & Amp; badges tabs with 🤖/🤖● and sends a toast when an inactive agent tab finishes">AI coding agent radar &amp; completion toast (<code>🤖</code>)</label>
+            <input id="agentRadarCheck" type="checkbox" checked>
+          </div>
+          <div class="s-row">
+            <label for="sshAlertCheck" title="Tints remote SSH/mosh tabs amber and production/root SSH tabs (prod*, prd*, root@*) crimson so you never confuse prod with local">SSH &amp; production host (<code>prod*</code> / <code>root@*</code>) danger tint</label>
+            <input id="sshAlertCheck" type="checkbox" checked>
+          </div>
+          <div class="s-row">
+            <label for="cmdPaletteCheck" title="Injects Studio theme picker (with ANSI swatches), 1-key Zen/Presentation Mode, Opacity Stepper, Ligatures toggle, and Launch Web Studio into WezTerm's Ctrl+Shift+P Command Palette">Command Palette (<code>Ctrl+Shift+P</code>) Studio &amp; Zen Mode</label>
+            <input id="cmdPaletteCheck" type="checkbox" checked>
           </div>
         </div>
 
@@ -939,8 +1039,11 @@
     let BOOT = null;
     let STATE = null;
     let FONTS = [];
+    let SCHEME_PALETTES = [];
     let curCat = "";
     let onlyNerd = false;
+    let schemeModeFilter = "all";
+    let schemeRenderLimit = 80;
     let draftSymbols = null;
 
     const QUICK_SCHEMES = [
@@ -1228,7 +1331,13 @@
       document.getElementById("tabBottomCheck").checked = app.tab_bar_at_bottom !== false;
       document.getElementById("hideOneTabCheck").checked = !!app.hide_tab_bar_if_only_one_tab;
       document.getElementById("statusBarCheck").checked = !!app.status_bar;
+      document.getElementById("agentRadarCheck").checked = app.agent_indicators !== false;
+      document.getElementById("sshAlertCheck").checked = app.ssh_alert !== false;
+      document.getElementById("cmdPaletteCheck").checked = app.command_palette !== false;
       document.getElementById("bellCheck").checked = app.audible_bell === "SystemBeep";
+      const darkLabel = app.color_scheme || "Default";
+      const lightLabel = app.color_scheme_light || "Off";
+      document.getElementById("activeSchemesSummary").textContent = `Dark: ${darkLabel} · Light: ${lightLabel}`;
     }
 
     function renderSymbolDrawer() {
@@ -1398,6 +1507,85 @@
       });
     }
 
+    function renderSchemesGrid() {
+      const grid = document.getElementById("schemesGrid");
+      if (!SCHEME_PALETTES.length) {
+        grid.innerHTML = `<div style="color:var(--sub);font-size:0.86rem;">Loading terminal color scheme swatches...</div>`;
+        return;
+      }
+      const q = document.getElementById("schemeSearch").value.trim().toLowerCase();
+      const app = (STATE && STATE.appearance) || {};
+      const actDark = app.color_scheme || "";
+      const actLight = app.color_scheme_light || "";
+      const favSet = new Set(QUICK_SCHEMES);
+
+      let list = SCHEME_PALETTES.filter(p => {
+        if (schemeModeFilter === "dark" && !p.is_dark) return false;
+        if (schemeModeFilter === "light" && p.is_dark) return false;
+        if (!q) return true;
+        return p.name.toLowerCase().includes(q);
+      });
+
+      if (!q) {
+        list = list.slice().sort((a, b) => {
+          const aPri = (a.name === actDark || a.name === actLight) ? 0 : (favSet.has(a.name) ? 1 : 2);
+          const bPri = (b.name === actDark || b.name === actLight) ? 0 : (favSet.has(b.name) ? 1 : 2);
+          return aPri !== bPri ? aPri - bPri : a.name.localeCompare(b.name);
+        });
+      }
+
+      document.getElementById("schemeCount").textContent = `${list.length} of ${SCHEME_PALETTES.length} schemes`;
+      const visible = list.slice(0, schemeRenderLimit);
+      const moreWrap = document.getElementById("moreSchemesWrap");
+      const moreBtn = document.getElementById("moreSchemesBtn");
+      if (list.length > visible.length) {
+        moreWrap.style.display = "block";
+        moreBtn.textContent = `Show More Schemes (${visible.length} of ${list.length} shown)`;
+      } else {
+        moreWrap.style.display = "none";
+      }
+
+      grid.innerHTML = visible.map(p => {
+        const isD = p.name === actDark;
+        const isL = p.name === actLight;
+        const a = p.ansi || [];
+        const cRed = a[1] || "#f38ba8";
+        const cGrn = a[2] || "#a6e3a1";
+        const cYel = a[3] || "#f9e2af";
+        const cBlu = a[4] || "#89b4fa";
+        const cMag = a[5] || "#cba6f7";
+        const cCyn = a[6] || "#94e2d5";
+        const cur = p.cursor || p.fg;
+        const bars = a.slice(0, 8).map(c => `<span class="sc-bar-chip" style="background:${c}" title="${c}"></span>`).join("");
+        return `<article class="scheme-card${isD ? ' is-dark-active' : ''}${isL ? ' is-light-active' : ''}">
+          <div class="sc-head">
+            <span class="sc-name" title="${esc(p.name)}">${esc(p.name)}</span>
+            <div class="sc-badges">
+              ${isD ? '<span class="f-badge ed">DARK ★</span>' : ''}
+              ${isL ? '<span class="f-badge tb">LIGHT ★</span>' : ''}
+              <span class="sc-mode ${p.is_dark ? 'dark' : 'light'}">${p.is_dark ? 'Dark' : 'Light'}</span>
+            </div>
+          </div>
+          <div class="sc-term" style="background:${p.bg};color:${p.fg};">
+            <div><span style="color:${cBlu};font-weight:700;">~/proj</span> <span style="color:${cMag};">git:(main)</span> <span style="color:${cGrn};">❯</span> nvim src/main.rs</div>
+            <div><span style="color:${cMag};">fn</span> <span style="color:${cBlu};">deploy</span>() -&gt; <span style="color:${cCyn};">Result</span>&lt;<span style="color:${cYel};">"ok"</span>, <span style="color:${cRed};">Err</span>&gt; <span style="background:${cur};color:${p.bg};padding:0 3px;border-radius:2px;">█</span></div>
+          </div>
+          <div class="sc-bars">${bars}</div>
+          <div class="sc-foot">
+            <button class="btn ${isD ? 'btn-green' : 'btn-primary'} apply-dark-scheme" data-name="${esc(p.name)}">${isD ? '✔ Active Dark' : '⚡ Apply Dark'}</button>
+            <button class="btn apply-light-scheme" data-name="${esc(p.name)}">${isL ? '✔ Active Light' : '☀ Set Light'}</button>
+          </div>
+        </article>`;
+      }).join("");
+
+      grid.querySelectorAll(".apply-dark-scheme").forEach(btn => {
+        btn.addEventListener("click", () => updateAppearance({ color_scheme: btn.dataset.name }, `Color Scheme → ${btn.dataset.name}`));
+      });
+      grid.querySelectorAll(".apply-light-scheme").forEach(btn => {
+        btn.addEventListener("click", () => updateAppearance({ color_scheme_light: btn.dataset.name }, `Light-mode Scheme → ${btn.dataset.name}`));
+      });
+    }
+
     async function updateAppearance(updates, label) {
       setStatus("Applying...");
       const res = await apiPost("/api/apply-appearance", { updates, label });
@@ -1406,6 +1594,7 @@
         syncHeaderAndAppearanceUI();
         renderFontsGrid();
         renderThemesGrid();
+        renderSchemesGrid();
         setStatus("✔ " + res.msg, "ok");
       } else {
         setStatus("✖ " + res.msg, "err");
@@ -1458,6 +1647,7 @@
       document.querySelectorAll(".view-pane").forEach(p => p.classList.toggle("active", p.id === "view-" + viewName));
       if (viewName === "backups") loadBackups();
       if (viewName === "symbols") renderSymbolDrawer();
+      if (viewName === "schemes") renderSchemesGrid();
     }
 
     // ── Event Wiring ──
@@ -1702,6 +1892,38 @@
     document.getElementById("statusBarCheck").addEventListener("change", e => {
       updateAppearance({ status_bar: e.target.checked }, `Studio status bar → ${e.target.checked ? "On" : "Off"}`);
     });
+    document.getElementById("agentRadarCheck").addEventListener("change", e => {
+      updateAppearance({ agent_indicators: e.target.checked }, `AI coding agent radar → ${e.target.checked ? "On" : "Off"}`);
+    });
+    document.getElementById("sshAlertCheck").addEventListener("change", e => {
+      updateAppearance({ ssh_alert: e.target.checked }, `SSH & prod danger tint → ${e.target.checked ? "On" : "Off"}`);
+    });
+    document.getElementById("cmdPaletteCheck").addEventListener("change", e => {
+      updateAppearance({ command_palette: e.target.checked }, `WezTerm Command Palette actions → ${e.target.checked ? "On" : "Off"}`);
+    });
+    document.getElementById("openSchemesBrowserBtn").addEventListener("click", () => switchView("schemes"));
+
+    // Color Scheme Swatch Explorer events
+    function setSchemeFilter(mode) {
+      schemeModeFilter = mode;
+      schemeRenderLimit = 80;
+      document.getElementById("filterAllSchemes").classList.toggle("active", mode === "all");
+      document.getElementById("filterDarkSchemes").classList.toggle("active", mode === "dark");
+      document.getElementById("filterLightSchemes").classList.toggle("active", mode === "light");
+      renderSchemesGrid();
+    }
+    document.getElementById("schemeSearch").addEventListener("input", () => {
+      schemeRenderLimit = 80;
+      renderSchemesGrid();
+    });
+    document.getElementById("filterAllSchemes").addEventListener("click", () => setSchemeFilter("all"));
+    document.getElementById("filterDarkSchemes").addEventListener("click", () => setSchemeFilter("dark"));
+    document.getElementById("filterLightSchemes").addEventListener("click", () => setSchemeFilter("light"));
+    document.getElementById("moreSchemesBtn").addEventListener("click", () => {
+      schemeRenderLimit += 120;
+      renderSchemesGrid();
+    });
+
     document.getElementById("bellCheck").addEventListener("change", e => {
       updateAppearance({ audible_bell: e.target.checked ? "SystemBeep" : "Disabled" }, "Audible bell updated");
     });
@@ -1788,6 +2010,11 @@
       apiGet("/api/schemes").then(res => {
         if (res.ok) {
           document.getElementById("schemesDatalist").innerHTML = res.schemes.map(s => `<option value="${esc(s)}"></option>`).join("");
+          SCHEME_PALETTES = res.palettes || [];
+          if (SCHEME_PALETTES.length) {
+            document.getElementById("navSchemesTab").textContent = `🌈 Color Schemes (${SCHEME_PALETTES.length})`;
+          }
+          renderSchemesGrid();
         }
       });
     }
