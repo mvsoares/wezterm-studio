@@ -1,0 +1,1507 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WezTerm Studio — Temas de Abas, Símbolos, Fontes & Aparência</title>
+  <style>
+    :root {
+      --bg: #0f111a;
+      --panel: #171b28;
+      --panel2: #1f2537;
+      --border: #2c354d;
+      --text: #e6edf3;
+      --sub: #94a3b8;
+      --accent: #60a5fa;
+      --purple: #c084fc;
+      --green: #34d399;
+      --amber: #fbbf24;
+      --red: #f87171;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      padding-bottom: 64px;
+    }
+    button, input, select, textarea { font-family: inherit; }
+
+    /* ── Sticky Top Header ── */
+    .studio-header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: rgba(15, 17, 26, 0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px 0;
+    }
+    .header-inner {
+      max-width: 1440px;
+      margin: 0 auto;
+    }
+    .header-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-right: 8px;
+    }
+    .brand h1 {
+      font-size: 1.25rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      background: linear-gradient(90deg, #60a5fa, #c084fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .mode-pill {
+      font-size: 0.72rem;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      color: var(--sub);
+      font-weight: 600;
+    }
+    .init-banner {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      background: rgba(251, 191, 36, 0.12);
+      border: 1px solid rgba(251, 191, 36, 0.45);
+      color: var(--amber);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 0.8rem;
+    }
+    .init-banner.visible { display: inline-flex; }
+    .init-banner button {
+      background: var(--amber);
+      color: #111827;
+      border: none;
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-weight: 700;
+      font-size: 0.76rem;
+      cursor: pointer;
+    }
+
+    /* Quick Font & Theme Strip */
+    .quick-strip {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      flex: 1;
+    }
+    .q-box {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 4px 8px;
+      font-size: 0.76rem;
+    }
+    .q-label {
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 0.66rem;
+      letter-spacing: 0.05em;
+    }
+    .q-label.theme { color: var(--green); }
+    .q-label.editor { color: var(--accent); }
+    .q-label.tab { color: var(--purple); }
+    .q-val {
+      max-width: 175px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-weight: 600;
+    }
+    .q-select {
+      background: var(--panel2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 2px 5px;
+      font-size: 0.74rem;
+    }
+    .stepper {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      overflow: hidden;
+      background: var(--panel2);
+    }
+    .stepper button {
+      background: none;
+      border: none;
+      color: var(--sub);
+      width: 20px;
+      height: 22px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+    .stepper button:hover { background: var(--border); color: var(--text); }
+    .stepper input {
+      width: 36px;
+      background: transparent;
+      color: var(--text);
+      border: none;
+      text-align: center;
+      font-size: 0.75rem;
+      outline: none;
+    }
+    .status-pill {
+      margin-left: auto;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--sub);
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .status-pill.ok { color: var(--green); border-color: rgba(52, 211, 153, 0.45); }
+    .status-pill.err { color: var(--red); border-color: rgba(248, 113, 113, 0.45); }
+
+    /* Navigation Tabs */
+    .nav-tabs {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+    }
+    .nav-tab {
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--sub);
+      padding: 10px 16px;
+      font-size: 0.86rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .nav-tab:hover { color: var(--text); }
+    .nav-tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    /* Main Container */
+    .container {
+      max-width: 1440px;
+      margin: 22px auto 0;
+      padding: 0 24px;
+    }
+    .view-pane { display: none; }
+    .view-pane.active { display: block; }
+
+    /* Shared Toolbar & Buttons */
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      padding: 12px 14px;
+      border-radius: 12px;
+      margin-bottom: 14px;
+    }
+    .search-input {
+      flex: 1 1 260px;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 0.9rem;
+      outline: none;
+    }
+    .search-input:focus { border-color: var(--accent); }
+    .btn {
+      background: var(--panel2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 13px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn:hover { border-color: var(--accent); color: #fff; }
+    .btn-primary {
+      background: #2563eb;
+      border-color: #3b82f6;
+      color: #fff;
+    }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-green {
+      background: rgba(16, 185, 129, 0.2);
+      border-color: var(--green);
+      color: var(--green);
+    }
+    .btn-purple {
+      background: rgba(192, 132, 252, 0.16);
+      border-color: var(--purple);
+      color: var(--purple);
+    }
+
+    /* Category Pills */
+    .pills-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .pill-btn {
+      background: var(--panel);
+      color: var(--sub);
+      border: 1px solid var(--border);
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .pill-btn.active, .pill-btn:hover {
+      color: #fff;
+      border-color: var(--accent);
+      background: rgba(96, 165, 250, 0.16);
+    }
+
+    /* Symbol Builder Drawer */
+    .sym-drawer {
+      display: none;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .sym-drawer.open { display: block; }
+    .sym-preview-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 14px;
+      overflow-x: auto;
+    }
+    .sym-groups {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+    .sym-group h4 {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+    .sym-opts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .sym-opt {
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 7px;
+      padding: 5px 9px;
+      font-size: 0.78rem;
+      cursor: pointer;
+    }
+    .sym-opt.selected {
+      border-color: var(--green);
+      background: rgba(52, 211, 153, 0.16);
+      color: #fff;
+    }
+
+    /* ── Tab Themes Grid ── */
+    .themes-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(540px, 1fr));
+      gap: 14px;
+    }
+    .theme-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: border-color 0.15s;
+    }
+    .theme-card:hover { border-color: #475569; }
+    .theme-card.is-active {
+      border-color: var(--green);
+      box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.35);
+    }
+    .tc-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .tc-id { color: var(--accent); font-family: monospace; font-weight: 700; margin-right: 6px; }
+    .tc-name { font-weight: 700; font-size: 0.98rem; }
+    .tc-cat { color: var(--sub); font-size: 0.76rem; margin-left: 6px; }
+    .active-tag {
+      background: rgba(52, 211, 153, 0.16);
+      color: var(--green);
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 999px;
+    }
+    .swatches {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-family: monospace;
+      font-size: 0.76rem;
+      color: var(--sub);
+    }
+    .swatch { display: inline-flex; align-items: center; gap: 5px; }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+    .bar-wrap {
+      padding: 9px 10px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-family: var(--tab-preview-font, "JetBrains Mono", ui-monospace, monospace);
+      font-size: 12.2px;
+      line-height: 1.55;
+      white-space: pre;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+    .tab-seg { display: inline-block; padding: 2px 0; }
+    .tab-pill { border-radius: 5px; margin-right: 4px; }
+    .tc-desc { color: var(--sub); font-size: 0.82rem; line-height: 1.4; }
+    .tc-foot {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      margin-top: auto;
+      padding-top: 4px;
+    }
+    code.cli-hint {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 0.76rem;
+      color: #93c5fd;
+    }
+
+    /* ── Fonts Grid ── */
+    .fonts-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(430px, 1fr));
+      gap: 14px;
+    }
+    .font-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .font-card.is-editor { border-color: var(--accent); }
+    .font-card.is-tab { box-shadow: inset 0 0 0 1px var(--purple); }
+    .fc-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .fc-name { font-weight: 700; font-size: 0.96rem; }
+    .fc-badges { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; }
+    .f-badge {
+      font-size: 0.66rem;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+    .f-badge.ed { background: rgba(96, 165, 250, 0.2); color: var(--accent); }
+    .f-badge.tb { background: rgba(192, 132, 252, 0.2); color: var(--purple); }
+    .f-badge.nf { background: rgba(52, 211, 153, 0.16); color: var(--green); }
+    .f-author { font-size: 0.73rem; color: var(--sub); }
+    .fc-sample {
+      font-size: 0.85rem;
+      color: var(--sub);
+      line-height: 1.45;
+    }
+    .fc-code {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 8px 10px;
+      font-size: 0.86rem;
+      overflow-x: auto;
+      white-space: pre;
+    }
+    .fc-icons {
+      font-size: 0.95rem;
+      color: var(--accent);
+      letter-spacing: 0.18em;
+    }
+    .fc-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: auto;
+    }
+    .fc-actions button { flex: 1; }
+
+    /* ── Appearance & Settings Cards ── */
+    .settings-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+      gap: 16px;
+    }
+    .s-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .s-card h3 {
+      font-size: 0.95rem;
+      color: var(--accent);
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+    .s-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      font-size: 0.85rem;
+    }
+    .s-row label { color: var(--sub); }
+    .s-row input[type="number"],
+    .s-row input[type="text"],
+    .s-row select {
+      background: var(--panel2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 9px;
+      font-size: 0.83rem;
+      min-width: 180px;
+    }
+    .chips-wrap {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .scheme-chip {
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      color: var(--sub);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 0.75rem;
+      cursor: pointer;
+    }
+    .scheme-chip.active, .scheme-chip:hover {
+      border-color: var(--accent);
+      color: #fff;
+      background: rgba(96, 165, 250, 0.16);
+    }
+
+    /* Backups & Presets */
+    .bkp-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 420px;
+      overflow-y: auto;
+    }
+    .bkp-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 0.82rem;
+    }
+    .preset-area {
+      width: 100%;
+      min-height: 170px;
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      font-family: ui-monospace, monospace;
+      font-size: 0.8rem;
+      resize: vertical;
+    }
+
+    @media (max-width: 680px) {
+      .themes-grid, .fonts-grid, .settings-grid { grid-template-columns: 1fr; }
+      .studio-header { padding: 12px 14px 0; }
+      .container { padding: 0 14px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="studio-header">
+    <div class="header-inner">
+      <div class="header-top">
+        <div class="brand">
+          <h1>✦ WezTerm Studio</h1>
+          <span class="mode-pill" id="modePill">Carregando...</span>
+        </div>
+
+        <div class="init-banner" id="initBanner">
+          <span>Seu <code>wezterm.lua</code> ainda não carrega o módulo.</span>
+          <button id="initBtn">⚡ Integrar Agora (init)</button>
+        </div>
+
+        <div class="quick-strip">
+          <div class="q-box">
+            <span class="q-label theme">Abas</span>
+            <span class="q-val" id="hdrTheme">—</span>
+          </div>
+
+          <div class="q-box">
+            <span class="q-label editor">Editor</span>
+            <span class="q-val" id="hdrEditorFont">Padrão</span>
+            <select class="q-select" id="hdrEditorWeight">
+              <option>Thin</option><option>Light</option><option selected>Regular</option>
+              <option>Medium</option><option>DemiBold</option><option>Bold</option>
+            </select>
+            <div class="stepper">
+              <button id="edDec" title="Diminuir">−</button>
+              <input id="hdrEditorSize" type="text" value="13">
+              <button id="edInc" title="Aumentar">+</button>
+            </div>
+          </div>
+
+          <div class="q-box">
+            <span class="q-label tab">Fonte Aba</span>
+            <span class="q-val" id="hdrTabFont">Padrão</span>
+            <select class="q-select" id="hdrTabWeight">
+              <option>Regular</option><option selected>Medium</option><option>DemiBold</option><option>Bold</option>
+            </select>
+            <div class="stepper">
+              <button id="tbDec" title="Diminuir">−</button>
+              <input id="hdrTabSize" type="text" value="11">
+              <button id="tbInc" title="Aumentar">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="status-pill" id="statusPill">Pronto</div>
+      </div>
+
+      <nav class="nav-tabs">
+        <button class="nav-tab active" data-view="themes">🎨 Temas de Abas (60)</button>
+        <button class="nav-tab" data-view="fonts">🔤 Fontes & Tipografia</button>
+        <button class="nav-tab" data-view="appearance">🖥 Cores, Janela & Cursor</button>
+        <button class="nav-tab" data-view="backups">💾 Backups & Presets</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- ── TAB 1: 60 TAB THEMES & SYMBOLS ── -->
+    <section class="view-pane active" id="view-themes">
+      <div class="toolbar">
+        <input class="search-input" id="themeSearch" type="search" placeholder="Buscar tema por nome, categoria, estilo ou #ID (ex: neon, powerline, catppuccin, #08)...">
+        <label style="display:flex;align-items:center;gap:8px;font-size:0.83rem;color:var(--sub);">
+          Largura fixa (<strong id="lenLabel" style="color:var(--text)">15</strong>c):
+          <input id="lenSlider" type="range" min="4" max="32" value="15">
+        </label>
+        <button class="btn btn-purple" id="toggleSymBtn">✦ Símbolos das Abas</button>
+        <button class="btn" id="randomThemeBtn">🎲 Aleatório</button>
+        <span id="themeCount" style="color:var(--sub);font-size:0.82rem;"></span>
+      </div>
+
+      <!-- Collapsible Symbol Customizer -->
+      <div class="sym-drawer" id="symDrawer">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+          <div>
+            <strong>✦ Construtor de Símbolos das Abas</strong>
+            <span id="symStateLabel" style="margin-left:8px;font-size:0.78rem;color:var(--sub);"></span>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn" id="resetSymBtn">↺ Usar Símbolos do Tema</button>
+            <button class="btn btn-primary" id="applySymBtn">✔ Aplicar Símbolos no WezTerm</button>
+          </div>
+        </div>
+        <div class="sym-preview-box" id="symPreviewBox"></div>
+        <div class="sym-groups" id="symGroupsBox"></div>
+      </div>
+
+      <div class="pills-row" id="catPills"></div>
+      <div class="themes-grid" id="themesGrid"></div>
+    </section>
+
+    <!-- ── TAB 2: FONTS & TYPOGRAPHY ── -->
+    <section class="view-pane" id="view-fonts">
+      <div class="toolbar">
+        <input class="search-input" id="fontSearch" type="search" placeholder="Buscar fonte por família ou criador (ex: Victor, JetBrains, Iosevka, Cascadia, Meslo)...">
+        <button class="pill-btn active" id="filterAllFonts">Todas</button>
+        <button class="pill-btn" id="filterNerdFonts">Somente Nerd Fonts</button>
+        <button class="btn" id="refreshFontsBtn">↻ Recarregar Fontes</button>
+        <span id="fontCount" style="color:var(--sub);font-size:0.82rem;"></span>
+      </div>
+      <div class="fonts-grid" id="fontsGrid"></div>
+    </section>
+
+    <!-- ── TAB 3: COLORS, WINDOW & CURSOR ── -->
+    <section class="view-pane" id="view-appearance">
+      <div class="settings-grid">
+        <div class="s-card">
+          <h3>🎨 Esquema de Cores do Terminal (Color Scheme)</h3>
+          <div class="s-row">
+            <label for="schemeInput">Esquema ativo</label>
+            <div style="display:flex;gap:6px;flex:1;justify-content:flex-end;">
+              <input id="schemeInput" list="schemesDatalist" type="text" placeholder="Ex: Monokai Vivid, Catppuccin Mocha...">
+              <datalist id="schemesDatalist"></datalist>
+              <button class="btn btn-primary" id="applySchemeBtn">Aplicar</button>
+              <button class="btn" id="resetSchemeBtn" title="Voltar ao padrão">Padrão</button>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:0.76rem;color:var(--sub);margin-bottom:8px;">Favoritos rápidos (1 clique):</div>
+            <div class="chips-wrap" id="quickSchemes"></div>
+          </div>
+        </div>
+
+        <div class="s-card">
+          <h3>🪟 Janela & Transparência</h3>
+          <div class="s-row">
+            <label for="opacityRange">Opacidade de fundo (<span id="opacityVal">1.00</span>)</label>
+            <input id="opacityRange" type="range" min="0.2" max="1.0" step="0.02" value="1.0">
+          </div>
+          <div class="s-row">
+            <label for="paddingInput">Margem interna (Padding px)</label>
+            <input id="paddingInput" type="number" min="0" max="64" step="2" value="10">
+          </div>
+          <div class="s-row">
+            <label for="decorationsSelect">Decoração da janela</label>
+            <select id="decorationsSelect">
+              <option value="INTEGRATED_BUTTONS | RESIZE">INTEGRATED_BUTTONS | RESIZE</option>
+              <option value="TITLE | RESIZE">TITLE | RESIZE</option>
+              <option value="RESIZE">RESIZE (Sem barra de título)</option>
+              <option value="NONE">NONE (Sem bordas)</option>
+            </select>
+          </div>
+          <div class="s-row">
+            <label for="lineHeightInput">Altura de linha (Line Height)</label>
+            <input id="lineHeightInput" type="number" min="0.8" max="2.0" step="0.05" value="1.0">
+          </div>
+        </div>
+
+        <div class="s-card">
+          <h3>▏Cursor, Barra de Abas & Performance</h3>
+          <div class="s-row">
+            <label for="cursorStyleSelect">Estilo do cursor</label>
+            <select id="cursorStyleSelect">
+              <option value="BlinkingBar">BlinkingBar (Barra piscante)</option>
+              <option value="SteadyBar">SteadyBar (Barra fixa)</option>
+              <option value="BlinkingBlock">BlinkingBlock (Bloco piscante)</option>
+              <option value="SteadyBlock">SteadyBlock (Bloco fixo)</option>
+              <option value="BlinkingUnderline">BlinkingUnderline (Sublinhado piscante)</option>
+              <option value="SteadyUnderline">SteadyUnderline (Sublinhado fixo)</option>
+            </select>
+          </div>
+          <div class="s-row">
+            <label for="cursorBlinkInput">Velocidade do cursor (ms)</label>
+            <input id="cursorBlinkInput" type="number" min="0" max="2000" step="50" value="500">
+          </div>
+          <div class="s-row">
+            <label for="scrollbackInput">Histórico (Scrollback lines)</label>
+            <input id="scrollbackInput" type="number" min="500" max="200000" step="500" value="5000">
+          </div>
+          <div class="s-row">
+            <label for="tabBottomCheck">Barra de abas na parte inferior</label>
+            <input id="tabBottomCheck" type="checkbox" checked>
+          </div>
+          <div class="s-row">
+            <label for="hideOneTabCheck">Ocultar barra quando houver apenas 1 aba</label>
+            <input id="hideOneTabCheck" type="checkbox">
+          </div>
+          <div class="s-row">
+            <label for="bellCheck">Campainha sonora (Audible Bell)</label>
+            <input id="bellCheck" type="checkbox">
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── TAB 4: BACKUPS & PRESETS ── -->
+    <section class="view-pane" id="view-backups">
+      <div class="settings-grid">
+        <div class="s-card">
+          <h3>💾 Backups Instantâneos</h3>
+          <div style="display:flex;gap:8px;">
+            <input class="search-input" id="backupLabelInput" type="text" placeholder="Rótulo opcional (ex: antes_do_teste)...">
+            <button class="btn btn-primary" id="createBackupBtn">+ Criar Backup</button>
+          </div>
+          <div class="bkp-list" id="backupsList"></div>
+        </div>
+
+        <div class="s-card">
+          <h3>📦 Preset Portátil (Linux · macOS · Windows)</h3>
+          <p style="font-size:0.81rem;color:var(--sub);">
+            Exporte ou importe seu setup completo (tema de abas, símbolos, fontes, cores e janela) em JSON.
+          </p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn" id="loadExportBtn">⬇ Carregar Configuração Atual</button>
+            <button class="btn" id="downloadPresetBtn">💾 Baixar .json</button>
+            <button class="btn btn-primary" id="importPresetBtn">⚡ Aplicar JSON Abaixo</button>
+          </div>
+          <textarea class="preset-area" id="presetTextarea" placeholder='Clique em "Carregar Configuração Atual" ou cole um preset JSON aqui...'></textarea>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    let BOOT = null;
+    let STATE = null;
+    let FONTS = [];
+    let curCat = "";
+    let onlyNerd = false;
+    let draftSymbols = null;
+
+    const QUICK_SCHEMES = [
+      "Monokai Vivid", "Catppuccin Mocha", "Catppuccin Macchiato", "Tokyo Night",
+      "Tokyo Night Storm", "Dracula", "Gruvbox Dark (Gogh)", "Kanagawa (Gogh)",
+      "Nord", "Everforest Dark (Gogh)", "rose-pine", "SynthWave 84"
+    ];
+
+    const EMOJI_COLORS = {
+      red: "#e53935", orange: "#fb8c00", yellow: "#fdd835", green: "#43a047",
+      blue: "#1e88e5", purple: "#8e24aa", black: "#212121", white: "#eeeeee"
+    };
+    const MATCH_MAPS = {
+      balls: { red: "🔴", orange: "🟠", yellow: "🟡", green: "🟢", blue: "🔵", purple: "🟣", black: "⚫", white: "⚪" },
+      squares: { red: "🟥", orange: "🟧", yellow: "🟨", green: "🟩", blue: "🟦", purple: "🟪", black: "⬛", white: "⬜" },
+      hearts: { orange: "🧡", yellow: "💛", green: "💚", blue: "💙", purple: "💜", black: "🖤", white: "🤍" }
+    };
+
+    function setStatus(msg, kind = "") {
+      const el = document.getElementById("statusPill");
+      el.textContent = msg;
+      el.className = "status-pill" + (kind ? " " + kind : "");
+    }
+
+    async function apiGet(url) {
+      const res = await fetch(url);
+      return await res.json();
+    }
+
+    async function apiPost(url, payload = {}) {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      return await res.json();
+    }
+
+    function esc(s) {
+      return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    function lchFromHex(hex) {
+      const h = hex.replace("#", "");
+      const rgb = [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
+      const [r, g, b] = rgb.map(c => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+      const xyz = [
+        (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047,
+        (0.2126 * r + 0.7152 * g + 0.0722 * b),
+        (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883
+      ];
+      const [fx, fy, fz] = xyz.map(t => t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+      const a = 500 * (fx - fy), bb = 200 * (fy - fz);
+      return [116 * fy - 16, Math.hypot(a, bb), ((Math.atan2(bb, a) * 180 / Math.PI) + 360) % 360];
+    }
+
+    function matchGlyph(mapKey, bg) {
+      const glyphs = MATCH_MAPS[mapKey];
+      const [light, chroma, hue] = lchFromHex(bg);
+      if (chroma < 12) {
+        const gray = light < 50 ? "black" : "white";
+        if (glyphs[gray]) return glyphs[gray];
+      }
+      let best = Object.keys(glyphs)[0], bestGap = 9999;
+      for (const name of Object.keys(glyphs)) {
+        const [, c, h] = lchFromHex(EMOJI_COLORS[name]);
+        const raw = Math.abs(h - hue) % 360;
+        const gap = c >= 12 ? Math.min(raw, 360 - raw) : 999;
+        if (gap < bestGap) { bestGap = gap; best = name; }
+      }
+      return glyphs[best];
+    }
+
+    function composeSymbolsJS(sel, i, bg) {
+      const merged = Object.assign({}, BOOT.default_symbols, sel);
+      const findOpt = (gKey, k) => {
+        const g = BOOT.symbol_groups.find(x => x.key === gKey);
+        return g.options.find(o => o.key === k) || g.options[0];
+      };
+      const pOpt = findOpt("prefix", merged.prefix);
+      const mOpt = findOpt("marker", merged.marker);
+      const aOpt = findOpt("arrow", merged.arrow);
+      const iOpt = findOpt("inactive", merged.inactive);
+
+      const glyph = (opt) => {
+        const arr = opt.chars || [""];
+        return arr[i % arr.length] || "";
+      };
+      const marker = (MATCH_MAPS[mOpt.key] && bg) ? matchGlyph(mOpt.key, bg) : glyph(mOpt);
+      const parts = [glyph(pOpt), marker, glyph(aOpt)].filter(Boolean);
+      const active = parts.length ? parts.join(" ") + " " : "";
+      const inactChar = iOpt.chars === null ? marker : glyph(iOpt);
+      return [active, inactChar ? " " + inactChar : ""];
+    }
+
+    function withSymbols(theme, sel) {
+      if (!sel) return theme;
+      const palette = theme.palette.map((p, idx) => {
+        const [active_sym, inactive_sym] = composeSymbolsJS(sel, idx, p.bg);
+        return Object.assign({}, p, { active_sym, inactive_sym });
+      });
+      return Object.assign({}, theme, { palette });
+    }
+
+    function fmtFixed(txt, len) {
+      if (txt.length > len) return len <= 1 ? "…" : txt.slice(0, len - 1) + "…";
+      return txt + " ".repeat(len - txt.length);
+    }
+
+    function projectSlot(name, size) {
+      let h = 0;
+      for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 2147483648;
+      return h % size;
+    }
+
+    function seg(bg, fg, text, bold, underline, pill) {
+      const st = `background:${bg};color:${fg};${bold ? "font-weight:700;" : ""}${underline ? "text-decoration:underline;" : ""}`;
+      return `<span class="tab-seg${pill ? " tab-pill" : ""}" style="${st}">${esc(text)}</span>`;
+    }
+
+    function renderBarHTML(rawTheme, len, symOverride) {
+      const t = withSymbols(rawTheme, symOverride);
+      const p = t.palette;
+      const pill = !!t.use_fancy && t.style !== "powerline";
+      const names = ["setup", "mvsoares", "careplus", "cloud-run"].map(n => fmtFixed(n, len));
+      const s = t.style;
+
+      if (s === "powerline") {
+        const sep = t.sep_char || "\ue0b0";
+        let out = "";
+        for (let i = 0; i < 4; i++) {
+          const c = p[i];
+          const nextBg = i < 3 ? p[i + 1].bg : t.bg_bar;
+          const pre = i === 0 ? `${c.active_sym || "⚡ "}1` : `${i + 1}${c.inactive_sym || ""}`;
+          out += seg(c.bg, c.fg, ` ${pre} ${names[i]} `, i === 0, i === 0, false);
+          out += seg(nextBg, c.bg, sep, false, false, false);
+        }
+        return out;
+      }
+      if (s === "crt_amber") {
+        return [0,1,2,3].map(i => seg(p[i].bg, p[i].fg, ` [${i===0?"*":"-"} 0${i+1}:${names[i].toUpperCase()} ${i===0?"*":"-"}] `, i===0, i===0, pill)).join("");
+      }
+      if (s === "left_bar") {
+        return [0,1,2,3].map(i => seg(i===0?p[i].bg:"#1a1c23", i===0?p[i].fg:p[i].bg, `${i===0?"▌ ":"  "}${i+1} ${names[i]} ✕ `, i===0, i===0, pill)).join("");
+      }
+      if (s === "top_neon") {
+        return [0,1,2,3].map(i => seg(i===0?p[i].bg:"#151720", i===0?p[i].fg:p[i].bg, ` ▔ ${i+1} ${names[i]} ✕ `, i===0, i===0, pill)).join("");
+      }
+      if (s === "ghost") {
+        return [0,1,2,3].map(i => seg(i===0?"#252836":t.bg_bar, p[i].bg, ` ${i+1} ${names[i]} ✕ `, i===0, i===0, pill)).join("");
+      }
+      if (s === "outline") {
+        return [0,1,2,3].map(i => seg(i===0?p[i].bg:"#161822", i===0?p[i].fg:p[i].bg, ` ${i===0?"【":"〔"}${i+1} ${names[i]}${i===0?"】":"〕"} `, i===0, i===0, pill)).join("");
+      }
+      if (s === "circle_numbers") {
+        const cc = ["❶","❷","❸","❹"];
+        return [0,1,2,3].map(i => seg(p[i].bg, p[i].fg, ` ${cc[i]} ${names[i]} ✕ `, i===0, i===0, pill)).join("");
+      }
+      if (s === "smart_badges") {
+        const ic = ["󰊢","󰅩","󰒋","󰜎"];
+        return [0,1,2,3].map(i => seg(p[i].bg, p[i].fg, ` ${ic[i]} ${i+1} ${names[i]} ✕ `, i===0, i===0, pill)).join("");
+      }
+      if (s === "pulse_dots") {
+        return [0,1,2,3].map(i => seg(p[i].bg, p[i].fg, ` ${i===0?(p[i].active_sym||""):(p[i].inactive_sym||"")}${i+1} ${names[i]} ✕ `, i===0, i===0, pill)).join("");
+      }
+      if (s === "mono_accent") {
+        return [0,1,2,3].map(i => i === 0
+          ? seg(p[0].bg, p[0].fg, ` ${p[0].active_sym||""}1 ${names[0]} ✕ `, true, false, pill)
+          : seg(t.muted_bg || "#303134", t.muted_fg || "#9aa0a6", ` ${i+1}${p[i].inactive_sym||""} ${names[i]} ✕ `, false, false, pill)
+        ).join("");
+      }
+      if (s === "project_color") {
+        const pnames = ["careplus", "linux-setup", "careplus", "infra"];
+        return pnames.map((nm, i) => {
+          const c = p[projectSlot(nm, p.length)];
+          const tx = i === 0 ? `${c.active_sym||""}1` : `${i+1}${c.inactive_sym||""}`;
+          return seg(c.bg, c.fg, ` ${tx} ${fmtFixed(nm, len)} ✕ `, i===0, i===0, pill);
+        }).join("");
+      }
+      return [0,1,2,3].map(i => {
+        const c = p[i];
+        const tx = i === 0 ? `${c.active_sym||"⚡ ➜ "}1` : `${i+1}${c.inactive_sym||" 🔘"}`;
+        return seg(c.bg, c.fg, ` ${tx} ${names[i]} ✕ `, i===0, i===0, pill);
+      }).join("");
+    }
+
+    function shortFont(f) {
+      return f ? f.replace(/ Nerd Font( Mono| Propo)?$/, " NF") : "Padrão";
+    }
+
+    function syncHeaderAndAppearanceUI() {
+      if (!STATE) return;
+      const app = STATE.appearance || {};
+      const activeTheme = BOOT.themes.find(t => t.id === STATE.theme_id) || BOOT.themes[0];
+
+      document.getElementById("modePill").textContent = `${STATE.platform} · ${STATE.mode}`;
+      document.getElementById("initBanner").classList.toggle("visible", !STATE.initialized);
+
+      document.getElementById("hdrTheme").textContent = `#${String(activeTheme.id).padStart(2, "0")} ${activeTheme.name}`;
+      document.getElementById("hdrEditorFont").textContent = shortFont(app.font_family);
+      document.getElementById("hdrTabFont").textContent = shortFont(app.tab_font_family);
+
+      if (app.font_weight) document.getElementById("hdrEditorWeight").value = app.font_weight;
+      if (app.font_size != null) document.getElementById("hdrEditorSize").value = app.font_size;
+      if (app.tab_font_weight) document.getElementById("hdrTabWeight").value = app.tab_font_weight;
+      if (app.tab_font_size != null) document.getElementById("hdrTabSize").value = app.tab_font_size;
+
+      if (app.tab_font_family) {
+        document.documentElement.style.setProperty("--tab-preview-font", `"${app.tab_font_family}", "JetBrains Mono", monospace`);
+      }
+
+      document.getElementById("lenSlider").value = Math.min(32, Math.max(4, STATE.tab_title_len || 15));
+      document.getElementById("lenLabel").textContent = STATE.tab_title_len || 15;
+
+      // Appearance controls
+      document.getElementById("schemeInput").value = app.color_scheme || "";
+      document.querySelectorAll(".scheme-chip").forEach(ch => {
+        ch.classList.toggle("active", ch.dataset.scheme === (app.color_scheme || ""));
+      });
+      if (app.window_opacity != null) {
+        document.getElementById("opacityRange").value = app.window_opacity;
+        document.getElementById("opacityVal").textContent = Number(app.window_opacity).toFixed(2);
+      }
+      if (app.window_padding != null && typeof app.window_padding === "number") {
+        document.getElementById("paddingInput").value = app.window_padding;
+      }
+      if (app.window_decorations) document.getElementById("decorationsSelect").value = app.window_decorations;
+      if (app.line_height != null) document.getElementById("lineHeightInput").value = app.line_height;
+      if (app.cursor_style) document.getElementById("cursorStyleSelect").value = app.cursor_style;
+      if (app.cursor_blink_rate != null) document.getElementById("cursorBlinkInput").value = app.cursor_blink_rate;
+      if (app.scrollback_lines != null) document.getElementById("scrollbackInput").value = app.scrollback_lines;
+      document.getElementById("tabBottomCheck").checked = app.tab_bar_at_bottom !== false;
+      document.getElementById("hideOneTabCheck").checked = !!app.hide_tab_bar_if_only_one_tab;
+      document.getElementById("bellCheck").checked = app.audible_bell === "SystemBeep";
+    }
+
+    function renderSymbolDrawer() {
+      const curTheme = BOOT.themes.find(t => t.id === STATE.theme_id) || BOOT.themes[0];
+      const len = parseInt(document.getElementById("lenSlider").value, 10) || 15;
+      document.getElementById("symStateLabel").textContent = draftSymbols ? "(Personalizado)" : "(Símbolos nativos do tema)";
+      const previewEl = document.getElementById("symPreviewBox");
+      previewEl.style.background = curTheme.bg_bar;
+      previewEl.innerHTML = `<div class="bar-wrap" style="background:${curTheme.bg_bar};border:none;padding:2px;">${renderBarHTML(curTheme, len, draftSymbols)}</div>`;
+
+      const groupsEl = document.getElementById("symGroupsBox");
+      groupsEl.innerHTML = BOOT.symbol_groups.map(g => {
+        const curKey = draftSymbols ? draftSymbols[g.key] : null;
+        const btns = g.options.map(o => {
+          const sample = o.chars === null ? "=" : ((o.chars || []).slice(0, 4).join("") || "—");
+          const sel = curKey === o.key ? " selected" : "";
+          return `<button class="sym-opt${sel}" data-g="${g.key}" data-k="${o.key}">${esc(sample)} ${esc(o.name)}</button>`;
+        }).join("");
+        return `<div class="sym-group"><h4>${esc(g.title)}</h4><div class="sym-opts">${btns}</div></div>`;
+      }).join("");
+
+      groupsEl.querySelectorAll(".sym-opt").forEach(btn => {
+        btn.addEventListener("click", () => {
+          draftSymbols = Object.assign({}, BOOT.default_symbols, draftSymbols || {}, { [btn.dataset.g]: btn.dataset.k });
+          renderSymbolDrawer();
+          renderThemesGrid();
+        });
+      });
+    }
+
+    function renderThemesGrid() {
+      const q = document.getElementById("themeSearch").value.trim().toLowerCase();
+      const numQ = q.replace(/^#/, "");
+      const len = parseInt(document.getElementById("lenSlider").value, 10) || 15;
+      const list = BOOT.themes.filter(t => {
+        if (curCat && t.category !== curCat) return false;
+        if (!q) return true;
+        if (/^\d+$/.test(numQ) && t.id === parseInt(numQ, 10)) return true;
+        return t.name.toLowerCase().includes(q)
+          || t.category.toLowerCase().includes(q)
+          || (t.description || "").toLowerCase().includes(q)
+          || (t.style || "").toLowerCase().includes(q);
+      });
+
+      document.getElementById("themeCount").textContent = `${list.length} de ${BOOT.themes.length} temas`;
+      const grid = document.getElementById("themesGrid");
+      grid.innerHTML = list.map(t => {
+        const idPad = String(t.id).padStart(2, "0");
+        const isAct = t.id === STATE.theme_id;
+        const sw = t.palette.map(p => `<span class="swatch"><span class="dot" style="background:${p.bg}"></span>${p.bg}</span>`).join("");
+        const cmd = `wezterm-theme -s ${t.id}`;
+        return `<article class="theme-card${isAct ? " is-active" : ""}">
+          <div class="tc-head">
+            <div><span class="tc-id">#${idPad}</span><span class="tc-name">${esc(t.name)}</span><span class="tc-cat">[${esc(t.category)}]</span></div>
+            ${isAct ? '<span class="active-tag">★ ATIVO</span>' : ''}
+          </div>
+          <div class="swatches">${sw}</div>
+          <div class="bar-wrap" style="background:${t.bg_bar}">${renderBarHTML(t, len, draftSymbols)}</div>
+          <p class="tc-desc">${esc(t.description)}</p>
+          <div class="tc-foot">
+            <code class="cli-hint">${cmd}</code>
+            <div style="display:flex;gap:6px;">
+              <button class="btn copy-cmd" data-cmd="${cmd}">Copiar CLI</button>
+              <button class="btn ${isAct ? 'btn-green' : 'btn-primary'} apply-theme-btn" data-id="${t.id}">
+                ${isAct ? '✔ Aplicado' : '⚡ Aplicar Agora'}
+              </button>
+            </div>
+          </div>
+        </article>`;
+      }).join("");
+
+      grid.querySelectorAll(".apply-theme-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const tid = parseInt(btn.dataset.id, 10);
+          setStatus(`Aplicando tema #${tid}...`);
+          const res = await apiPost("/api/apply-tab-theme", {
+            theme_id: tid,
+            tab_title_len: len,
+            symbols: draftSymbols
+          });
+          if (res.ok) {
+            STATE = res.state;
+            syncHeaderAndAppearanceUI();
+            renderThemesGrid();
+            renderSymbolDrawer();
+            setStatus("✔ " + res.msg, "ok");
+          } else {
+            setStatus("✖ " + res.msg, "err");
+          }
+        });
+      });
+
+      grid.querySelectorAll(".copy-cmd").forEach(btn => {
+        btn.addEventListener("click", () => {
+          navigator.clipboard.writeText(btn.dataset.cmd);
+          const old = btn.textContent;
+          btn.textContent = "✔ Copiado";
+          setTimeout(() => { btn.textContent = old; }, 1200);
+        });
+      });
+    }
+
+    function renderFontsGrid() {
+      const q = document.getElementById("fontSearch").value.trim().toLowerCase();
+      const app = (STATE && STATE.appearance) || {};
+      const list = FONTS.filter(f => {
+        if (onlyNerd && !f.is_nerd) return false;
+        if (!q) return true;
+        return f.name.toLowerCase().includes(q) || (f.desc || "").toLowerCase().includes(q);
+      });
+      document.getElementById("fontCount").textContent = `${list.length} de ${FONTS.length} fontes`;
+      const iconsSample = "⚡ \ue0b0 \ue0b4 \udb80\udea2 \ue73c \udb80\udd69 \uf489 \udb80\udf0e \udb81\udc8b ★ ❶";
+
+      const grid = document.getElementById("fontsGrid");
+      grid.innerHTML = list.map(f => {
+        const isEd = app.font_family === f.family || (app.font_family && app.font_family.startsWith(f.family));
+        const isTb = app.tab_font_family === f.family || (app.tab_font_family && app.tab_font_family.startsWith(f.family));
+        return `<article class="font-card${isEd ? ' is-editor' : ''}${isTb ? ' is-tab' : ''}">
+          <div class="fc-head">
+            <span class="fc-name">${esc(f.name)}</span>
+            <div class="fc-badges">
+              ${isEd ? '<span class="f-badge ed">EDITOR</span>' : ''}
+              ${isTb ? '<span class="f-badge tb">ABAS</span>' : ''}
+              ${f.is_nerd ? '<span class="f-badge nf">NERD</span>' : ''}
+              <span class="f-author">${esc(f.desc)}</span>
+            </div>
+          </div>
+          <div class="fc-sample" style="font-family:'${esc(f.family)}',monospace">${esc(f.text)}</div>
+          <div class="fc-code" style="font-family:'${esc(f.family)}',monospace">const greet = (n) =&gt; \`Olá, \${n}!\`; // != === &gt;= |&gt; 0Oo1lI</div>
+          <div class="fc-icons" style="font-family:'${esc(f.family)}',monospace">${iconsSample}</div>
+          <div class="fc-actions">
+            <button class="btn apply-ed-font" data-fam="${esc(f.family)}">Aplicar no Editor</button>
+            <button class="btn btn-purple apply-tb-font" data-fam="${esc(f.family)}">Aplicar nas Abas</button>
+          </div>
+        </article>`;
+      }).join("");
+
+      grid.querySelectorAll(".apply-ed-font").forEach(btn => {
+        btn.addEventListener("click", () => updateAppearance(
+          { font_family: btn.dataset.fam, font_weight: document.getElementById("hdrEditorWeight").value },
+          `Fonte do Editor → ${btn.dataset.fam}`
+        ));
+      });
+      grid.querySelectorAll(".apply-tb-font").forEach(btn => {
+        btn.addEventListener("click", () => updateAppearance(
+          { tab_font_family: btn.dataset.fam, tab_font_weight: document.getElementById("hdrTabWeight").value },
+          `Fonte das Abas → ${btn.dataset.fam}`
+        ));
+      });
+    }
+
+    async function updateAppearance(updates, label) {
+      setStatus("Aplicando...");
+      const res = await apiPost("/api/apply-appearance", { updates, label });
+      if (res.ok) {
+        STATE = res.state;
+        syncHeaderAndAppearanceUI();
+        renderFontsGrid();
+        renderThemesGrid();
+        setStatus("✔ " + res.msg, "ok");
+      } else {
+        setStatus("✖ " + res.msg, "err");
+      }
+    }
+
+    async function loadBackups() {
+      const res = await apiGet("/api/backups");
+      if (!res.ok) return;
+      renderBackupsList(res.backups);
+    }
+
+    function renderBackupsList(backups) {
+      const el = document.getElementById("backupsList");
+      if (!backups || !backups.length) {
+        el.innerHTML = `<div style="color:var(--sub);font-size:0.84rem;padding:8px 0;">Nenhum backup salvo ainda.</div>`;
+        return;
+      }
+      el.innerHTML = backups.map(b => `
+        <div class="bkp-item">
+          <div>
+            <strong>[${String(b.index).padStart(2, "0")}] ${esc(b.theme_info)}</strong>
+            ${b.label ? `<span style="color:var(--amber);margin-left:6px;">[${esc(b.label)}]</span>` : ''}
+            <div style="color:var(--sub);font-size:0.75rem;">${esc(b.date_str)} · ${esc(b.filename)}</div>
+          </div>
+          <button class="btn restore-bkp-btn" data-idx="${b.index}">↺ Restaurar</button>
+        </div>
+      `).join("");
+
+      el.querySelectorAll(".restore-bkp-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const res = await apiPost("/api/restore", { target: parseInt(btn.dataset.idx, 10) });
+          if (res.ok) {
+            STATE = res.state;
+            draftSymbols = STATE.symbols || null;
+            syncHeaderAndAppearanceUI();
+            renderThemesGrid();
+            renderSymbolDrawer();
+            renderBackupsList(res.backups);
+            setStatus("✔ " + res.msg, "ok");
+          } else {
+            setStatus("✖ " + res.msg, "err");
+          }
+        });
+      });
+    }
+
+    // ── Event Wiring ──
+    document.querySelectorAll(".nav-tab").forEach(tab => {
+      tab.addEventListener("click", () => {
+        document.querySelectorAll(".nav-tab").forEach(t => t.classList.remove("active"));
+        document.querySelectorAll(".view-pane").forEach(p => p.classList.remove("active"));
+        tab.classList.add("active");
+        document.getElementById("view-" + tab.dataset.view).classList.add("active");
+        if (tab.dataset.view === "backups") loadBackups();
+      });
+    });
+
+    document.getElementById("initBtn").addEventListener("click", async () => {
+      const res = await apiPost("/api/init");
+      if (res.ok) {
+        STATE = res.state;
+        syncHeaderAndAppearanceUI();
+        setStatus("✔ " + res.msg, "ok");
+      } else {
+        setStatus("✖ " + res.msg, "err");
+      }
+    });
+
+    document.getElementById("themeSearch").addEventListener("input", renderThemesGrid);
+    document.getElementById("lenSlider").addEventListener("input", e => {
+      document.getElementById("lenLabel").textContent = e.target.value;
+      renderThemesGrid();
+      renderSymbolDrawer();
+    });
+    document.getElementById("lenSlider").addEventListener("change", async e => {
+      const len = parseInt(e.target.value, 10);
+      const res = await apiPost("/api/apply-tab-theme", {
+        theme_id: STATE.theme_id,
+        tab_title_len: len,
+        symbols: "keep"
+      });
+      if (res.ok) {
+        STATE = res.state;
+        setStatus(`✔ Largura das abas ajustada para ${len} caracteres`, "ok");
+      }
+    });
+
+    document.getElementById("toggleSymBtn").addEventListener("click", () => {
+      document.getElementById("symDrawer").classList.toggle("open");
+    });
+
+    document.getElementById("resetSymBtn").addEventListener("click", () => {
+      draftSymbols = null;
+      renderSymbolDrawer();
+      renderThemesGrid();
+    });
+
+    document.getElementById("applySymBtn").addEventListener("click", async () => {
+      const res = await apiPost("/api/apply-tab-theme", {
+        theme_id: STATE.theme_id,
+        tab_title_len: STATE.tab_title_len,
+        symbols: draftSymbols
+      });
+      if (res.ok) {
+        STATE = res.state;
+        renderThemesGrid();
+        renderSymbolDrawer();
+        setStatus("✔ Símbolos aplicados ao WezTerm!", "ok");
+      } else {
+        setStatus("✖ " + res.msg, "err");
+      }
+    });
+
+    document.getElementById("randomThemeBtn").addEventListener("click", async () => {
+      const pick = BOOT.themes[Math.floor(Math.random() * BOOT.themes.length)];
+      const res = await apiPost("/api/apply-tab-theme", { theme_id: pick.id, symbols: draftSymbols });
+      if (res.ok) {
+        STATE = res.state;
+        syncHeaderAndAppearanceUI();
+        renderThemesGrid();
+        renderSymbolDrawer();
+        setStatus(`🎲 Tema aleatório #${pick.id} (${pick.name}) aplicado!`, "ok");
+      }
+    });
+
+    // Header font size & weight steppers
+    function stepSize(inputId, delta, key, labelPrefix) {
+      const el = document.getElementById(inputId);
+      let v = Math.round(((parseFloat(el.value) || 12) + delta * 0.5) * 10) / 10;
+      v = Math.max(6, Math.min(36, v));
+      el.value = v;
+      updateAppearance({ [key]: v }, `${labelPrefix} → ${v}pt`);
+    }
+    document.getElementById("edDec").addEventListener("click", () => stepSize("hdrEditorSize", -1, "font_size", "Tamanho Editor"));
+    document.getElementById("edInc").addEventListener("click", () => stepSize("hdrEditorSize", +1, "font_size", "Tamanho Editor"));
+    document.getElementById("tbDec").addEventListener("click", () => stepSize("hdrTabSize", -1, "tab_font_size", "Tamanho Abas"));
+    document.getElementById("tbInc").addEventListener("click", () => stepSize("hdrTabSize", +1, "tab_font_size", "Tamanho Abas"));
+    document.getElementById("hdrEditorSize").addEventListener("change", e => updateAppearance({ font_size: parseFloat(e.target.value) || 13 }, "Tamanho Editor atualizado"));
+    document.getElementById("hdrTabSize").addEventListener("change", e => updateAppearance({ tab_font_size: parseFloat(e.target.value) || 11 }, "Tamanho Abas atualizado"));
+    document.getElementById("hdrEditorWeight").addEventListener("change", e => updateAppearance({ font_weight: e.target.value }, `Peso Editor → ${e.target.value}`));
+    document.getElementById("hdrTabWeight").addEventListener("change", e => updateAppearance({ tab_font_weight: e.target.value }, `Peso Abas → ${e.target.value}`));
+
+    // Fonts filter
+    document.getElementById("fontSearch").addEventListener("input", renderFontsGrid);
+    document.getElementById("filterAllFonts").addEventListener("click", () => {
+      onlyNerd = false;
+      document.getElementById("filterAllFonts").classList.add("active");
+      document.getElementById("filterNerdFonts").classList.remove("active");
+      renderFontsGrid();
+    });
+    document.getElementById("filterNerdFonts").addEventListener("click", () => {
+      onlyNerd = true;
+      document.getElementById("filterNerdFonts").classList.add("active");
+      document.getElementById("filterAllFonts").classList.remove("active");
+      renderFontsGrid();
+    });
+    document.getElementById("refreshFontsBtn").addEventListener("click", async () => {
+      setStatus("Recarregando fontes...");
+      const res = await apiGet("/api/fonts?refresh=1");
+      if (res.ok) {
+        FONTS = res.fonts;
+        renderFontsGrid();
+        setStatus(`✔ ${FONTS.length} fontes carregadas`, "ok");
+      }
+    });
+
+    // Appearance events
+    document.getElementById("quickSchemes").innerHTML = QUICK_SCHEMES.map(
+      s => `<button class="scheme-chip" data-scheme="${esc(s)}">${esc(s)}</button>`
+    ).join("");
+    document.querySelectorAll(".scheme-chip").forEach(ch => {
+      ch.addEventListener("click", () => {
+        document.getElementById("schemeInput").value = ch.dataset.scheme;
+        updateAppearance({ color_scheme: ch.dataset.scheme }, `Color Scheme → ${ch.dataset.scheme}`);
+      });
+    });
+    document.getElementById("applySchemeBtn").addEventListener("click", () => {
+      const s = document.getElementById("schemeInput").value.trim();
+      updateAppearance({ color_scheme: s || "Default" }, `Color Scheme → ${s || "Padrão"}`);
+    });
+    document.getElementById("resetSchemeBtn").addEventListener("click", () => {
+      document.getElementById("schemeInput").value = "";
+      updateAppearance({ color_scheme: "Default" }, "Color Scheme → Padrão");
+    });
+
+    document.getElementById("opacityRange").addEventListener("input", e => {
+      document.getElementById("opacityVal").textContent = Number(e.target.value).toFixed(2);
+    });
+    document.getElementById("opacityRange").addEventListener("change", e => {
+      updateAppearance({ window_opacity: parseFloat(e.target.value) }, `Opacidade → ${Number(e.target.value).toFixed(2)}`);
+    });
+    document.getElementById("paddingInput").addEventListener("change", e => {
+      updateAppearance({ window_padding: parseInt(e.target.value, 10) || 0 }, `Padding → ${e.target.value}px`);
+    });
+    document.getElementById("decorationsSelect").addEventListener("change", e => {
+      updateAppearance({ window_decorations: e.target.value }, `Decoração → ${e.target.value}`);
+    });
+    document.getElementById("lineHeightInput").addEventListener("change", e => {
+      updateAppearance({ line_height: parseFloat(e.target.value) || 1.0 }, `Line Height → ${e.target.value}`);
+    });
+    document.getElementById("cursorStyleSelect").addEventListener("change", e => {
+      updateAppearance({ cursor_style: e.target.value }, `Cursor → ${e.target.value}`);
+    });
+    document.getElementById("cursorBlinkInput").addEventListener("change", e => {
+      updateAppearance({ cursor_blink_rate: parseInt(e.target.value, 10) || 0 }, `Blink Rate → ${e.target.value}ms`);
+    });
+    document.getElementById("scrollbackInput").addEventListener("change", e => {
+      updateAppearance({ scrollback_lines: parseInt(e.target.value, 10) || 5000 }, `Scrollback → ${e.target.value}`);
+    });
+    document.getElementById("tabBottomCheck").addEventListener("change", e => {
+      updateAppearance({ tab_bar_at_bottom: e.target.checked }, `Abas embaixo → ${e.target.checked ? "Sim" : "Não"}`);
+    });
+    document.getElementById("hideOneTabCheck").addEventListener("change", e => {
+      updateAppearance({ hide_tab_bar_if_only_one_tab: e.target.checked }, `Ocultar com 1 aba → ${e.target.checked ? "Sim" : "Não"}`);
+    });
+    document.getElementById("bellCheck").addEventListener("change", e => {
+      updateAppearance({ audible_bell: e.target.checked ? "SystemBeep" : "Disabled" }, "Audible Bell atualizado");
+    });
+
+    // Backups & Presets
+    document.getElementById("createBackupBtn").addEventListener("click", async () => {
+      const label = document.getElementById("backupLabelInput").value.trim();
+      const res = await apiPost("/api/backup", { label });
+      if (res.ok) {
+        document.getElementById("backupLabelInput").value = "";
+        renderBackupsList(res.backups);
+        setStatus("✔ " + res.msg, "ok");
+      } else {
+        setStatus("✖ " + res.msg, "err");
+      }
+    });
+
+    document.getElementById("loadExportBtn").addEventListener("click", async () => {
+      const res = await apiGet("/api/export");
+      if (res.ok) {
+        document.getElementById("presetTextarea").value = JSON.stringify(res.preset, null, 2);
+        setStatus("✔ Preset atual carregado", "ok");
+      }
+    });
+
+    document.getElementById("downloadPresetBtn").addEventListener("click", async () => {
+      const res = await apiGet("/api/export");
+      if (!res.ok) return;
+      const blob = new Blob([JSON.stringify(res.preset, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `wezterm-preset-theme-${res.preset.theme_id}.json`;
+      a.click();
+    });
+
+    document.getElementById("importPresetBtn").addEventListener("click", async () => {
+      const raw = document.getElementById("presetTextarea").value.trim();
+      if (!raw) return;
+      const res = await apiPost("/api/import", { preset: raw });
+      if (res.ok) {
+        STATE = res.state;
+        draftSymbols = STATE.symbols || null;
+        syncHeaderAndAppearanceUI();
+        renderThemesGrid();
+        renderSymbolDrawer();
+        setStatus("✔ " + res.msg, "ok");
+      } else {
+        setStatus("✖ " + res.msg, "err");
+      }
+    });
+
+    async function boot() {
+      setStatus("Inicializando estúdio...");
+      BOOT = await apiGet("/api/bootstrap");
+      STATE = BOOT.state;
+      draftSymbols = STATE.symbols || null;
+
+      // Build category pills
+      const catEl = document.getElementById("catPills");
+      catEl.innerHTML = `<button class="pill-btn active" data-cat="">Todos (${BOOT.themes.length})</button>` +
+        BOOT.categories.map(c => `<button class="pill-btn" data-cat="${esc(c.name)}">${esc(c.name)} (${String(c.lo).padStart(2,"0")}-${String(c.hi).padStart(2,"0")})</button>`).join("");
+      catEl.querySelectorAll(".pill-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          catEl.querySelectorAll(".pill-btn").forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+          curCat = btn.dataset.cat;
+          renderThemesGrid();
+        });
+      });
+
+      syncHeaderAndAppearanceUI();
+      renderThemesGrid();
+      renderSymbolDrawer();
+      setStatus("Pronto", "ok");
+
+      // Load fonts & schemes asynchronously
+      apiGet("/api/fonts").then(res => {
+        if (res.ok) {
+          FONTS = res.fonts;
+          renderFontsGrid();
+        }
+      });
+      apiGet("/api/schemes").then(res => {
+        if (res.ok) {
+          document.getElementById("schemesDatalist").innerHTML = res.schemes.map(s => `<option value="${esc(s)}"></option>`).join("");
+        }
+      });
+    }
+
+    boot();
+  </script>
+</body>
+</html>
