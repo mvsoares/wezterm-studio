@@ -1,118 +1,135 @@
 # ✦ WezTerm Studio (`wezterm-theme`)
 
-**WezTerm Studio** (`wezterm-theme`) é um pacote multiplataforma unificado (**Linux, macOS e Windows**) para personalizar o **WezTerm** em tempo real — sem precisar reiniciar o terminal e com **zero dependências externas** (100% biblioteca padrão do Python `>= 3.10`).
+**WezTerm Studio** (`wezterm-theme`) is a unified, cross-platform customizer (**Linux, macOS, and Windows**) for **WezTerm** that hot-reloads tab bar themes, custom symbols, monospace/Nerd Fonts, color schemes, and window appearance in real time — with **zero external dependencies** (100% Python `>= 3.10` standard library).
 
-Reúne em uma única ferramenta (CLI + TUI TrueColor + Estúdio Web Local):
-- 🎨 **60 Temas de Barra de Abas** (Google/Material, Powerline, Paletas Dev, Cyberpunk/Neon, Natureza, Minimalistas/CRT) com contraste WCAG verificado e largura uniforme configurável (`TAB_TITLE_LEN`).
-- ✦ **Construtor de Símbolos das Abas** (prefixos, marcadores adaptativos por cor da aba via CIE LCh, setas Powerline e indicadores de aba inativa).
-- 🔤 **Seletor Ao Vivo de Fontes & Nerd Fonts** (detecta automaticamente fontes monoespaçadas e Nerd Fonts via `wezterm ls-fonts`, FontConfig, CoreText e DirectWrite, separando fonte/peso/tamanho do **Editor** e das **Abas**).
-- 🖥 **1.100+ Color Schemes, Janela & Cursor** (opacidade, padding, decorações, cursor, line-height e scrollback).
-- 💾 **Backups Instantâneos & Presets JSON Portáteis** (compartilháveis entre Linux, macOS e Windows, com validação prévia no `wezterm` e rollback automático).
+It combines a fast **CLI**, an **ANSI TrueColor TUI**, and a **Local Web Studio** into a single package:
+
+- 🎨 **60 Tab Bar Themes** across 6 curated categories (*Google & Material*, *Powerline & Geometry*, *Developer Palettes*, *Synth & Cyberpunk*, *Nature & Earth Tones*, and *Minimal, Badges & CRT*) with verified WCAG contrast and configurable fixed tab width (`TAB_TITLE_LEN`).
+- ✦ **Tab Bar Symbol Builder** — mix active tab prefixes, CIE LCh hue-adaptive markers, Powerline/chevron arrows, and inactive tab indicators.
+- 🔤 **Live Font & Nerd Font Picker** — automatically discovers installed monospace and Nerd Fonts via `wezterm ls-fonts`, FontConfig, CoreText, and DirectWrite, with independent family, weight, and size controls for **Editor** and **Tab Bar**.
+- 🖥 **1,100+ Built-in Color Schemes & Window Controls** — search and apply WezTerm color schemes, window opacity, inner padding, decorations, cursor style, line height, and scrollback.
+- 💾 **Instant Backups & Portable JSON Presets** — automatic pre-validation via `wezterm` with rollback protection, timestamped backups, and OS-agnostic JSON presets shareable across Linux, macOS, and Windows.
 
 ---
 
-## 📦 Instalação
+## 📦 Installation
 
-### Direto do GitHub (`pipx`, `uv` ou `pip`)
+### Direct from GitHub (`pipx`, `uv`, or `pip`)
+
 ```bash
-# Via pipx (recomendado)
+# Recommended: pipx
 pipx install git+https://github.com/mvsoares/wezterm-studio.git
 
-# Ou via uv
+# Or via uv
 uv tool install git+https://github.com/mvsoares/wezterm-studio.git
 
-# Ou via pip
+# Or via pip
 pip install --user git+https://github.com/mvsoares/wezterm-studio.git
 ```
 
-### Instalação Local (Clone / Desenvolvimento)
+### Local Clone / Editable Development Install
+
 ```bash
 git clone https://github.com/mvsoares/wezterm-studio.git
 cd wezterm-studio
 pipx install -e . --force
-# ou: pip install --user -e .
+# or: pip install --user -e .
 ```
 
-Os comandos `wezterm-theme` (principal) e `wezterm-tab-theme` (alias de compatibilidade) ficam disponíveis no `PATH`.
+Both `wezterm-theme` (primary CLI) and `wezterm-tab-theme` (compatibility alias) are installed onto your `PATH`.
 
 ---
 
-## 🚀 Como Usar
+## 🚀 Quick Start
 
-### 1. Integrar ao seu `wezterm.lua` (apenas 1 vez)
-Funciona em qualquer configuração padrão do WezTerm no Linux, macOS ou Windows (`~/.config/wezterm/wezterm.lua`, `~/.wezterm.lua` ou `$WEZTERM_CONFIG_FILE`):
+### 1. Connect to your `wezterm.lua` (one-time setup)
+
+Works out of the box with standard WezTerm configurations on Linux, macOS, and Windows (`~/.config/wezterm/wezterm.lua`, `~/.wezterm.lua`, or `$WEZTERM_CONFIG_FILE`), whether your config uses `wezterm.config_builder()` or returns a plain Lua table:
 
 ```bash
 wezterm-theme init
 ```
 
-> **Nota:** Se você já utiliza o loader modular (`defaults.json` + `settings.json`), o `wezterm-theme` detecta automaticamente o modo **Loader** e sincroniza tudo nativamente com `settings.json` e `tab_theme.lua`.
+> **Dual-Mode Support:**
+> - **Standalone Mode (default):** Injects a clean, idempotent `dofile(...)` hook into `wezterm.lua` and manages `wezterm_theme.lua` + `wezterm_theme.json` with atomic writes.
+> - **JSON Loader Mode:** If your config directory already uses a modular `defaults.json` + `settings.json` loader, `wezterm-theme` detects it automatically and synchronizes `settings.json` and `tab_theme.lua` while preserving all your custom keybindings and rules.
 
-### 2. Abrir o WezTerm Studio no Navegador (Fontes + Abas + Cores ao vivo)
+### 2. Launch the Browser Web Studio (Live Fonts + Tabs + Colors)
+
 ```bash
 wezterm-theme web
-# ou: wezterm-theme -w
+# or: wezterm-theme -w
 ```
-Abre `http://127.0.0.1:7777` com pré-visualização real das fontes instaladas, ligaduras (`!= === >= =>`), ícones Nerd Font, 60 temas de abas, construtor de símbolos e aplicação em 1 clique direto no WezTerm.
 
-### 3. Usar o Seletor Interativo TrueColor no Terminal (TUI)
+Opens `http://127.0.0.1:7777` with live rendering of your installed fonts, programming ligatures (`!= === >= =>`), Nerd Font glyph previews, all 60 4-tab theme cards, interactive symbol composer, appearance sliders, and 1-click live application to WezTerm.
+
+### 3. Open the Interactive TrueColor Terminal Picker (TUI)
+
 ```bash
 wezterm-theme
 ```
-Atalhos dentro da TUI:
-- `[1-60]` — Aplicar tema de abas imediatamente
-- `[s]` — Construtor interativo de símbolos das abas
-- `[f]` — Seletor interativo de fontes e tamanhos (Editor + Abas)
-- `[cs]` — Seletor de Color Scheme do terminal
-- `[w]` — Iniciar o Web Studio no navegador
-- `[c1]..[c6]` / `[/termo]` — Filtrar categorias ou buscar
-- `[len 15]` — Ajustar largura fixa dos títulos das abas
-- `[b]` / `[u]` — Criar ou restaurar backup
 
-### 4. Comandos Diretos via CLI
+Keyboard commands inside the TUI:
+- `[1-60]` — Apply a tab bar theme immediately
+- `[s]` — Open the interactive Tab Bar Symbol Builder
+- `[f]` — Open the interactive Font & Size Picker (Editor + Tab Bar)
+- `[cs]` — Open the Terminal Color Scheme Picker
+- `[w]` — Launch Web Studio in your default browser
+- `[c1]..[c6]` / `[/query]` — Filter by category or search keyword
+- `[len 15]` — Set fixed tab title character width (`4`–`60`)
+- `[r]` — Apply a random theme
+- `[b]` / `[u]` — Create or restore a configuration backup
+- `[q]` — Quit
+
+### 4. Direct CLI One-Liners
+
 ```bash
-# Aplicar tema por ID ou slug + largura fixa das abas
+# Apply a tab theme by ID or slug + set fixed tab width
 wezterm-theme -s 8 -t 15
 wezterm-theme -s catppuccin-mocha
 
-# Trocar fonte e tamanho do Editor e da Barra de Abas
+# Set Editor and Tab Bar fonts & sizes
 wezterm-theme --font "JetBrainsMono Nerd Font" --size 13.5 --tab-font "JetBrainsMono Nerd Font" --tab-size 11.5
 
-# Trocar Color Scheme e opacidade da janela
+# Set WezTerm color scheme, window opacity, and padding
 wezterm-theme --scheme "Catppuccin Mocha" --opacity 0.95 --padding 10
 
-# Listar fontes, temas ou status atual
+# Inspect installed fonts, theme catalog, active status, or diagnostics
 wezterm-theme fonts --nerd
 wezterm-theme --list
 wezterm-theme --current
 wezterm-theme doctor
 
-# Exportar / importar preset portátil entre máquinas (Linux / macOS / Windows)
-wezterm-theme export meu-setup.json
-wezterm-theme import meu-setup.json
+# Export / import portable presets across machines (Linux / macOS / Windows)
+wezterm-theme export my-setup.json
+wezterm-theme import my-setup.json
 
-# Remover hook do wezterm.lua se desejar desinstalar
+# Cleanly remove the hook from wezterm.lua
 wezterm-theme uninstall --purge
 ```
 
 ---
 
-## 🌍 Compatibilidade Multiplataforma
+## 🌍 Cross-Platform Compatibility
 
-| Plataforma | Descoberta de Config | Descoberta de Fontes | TUI TrueColor & UTF-8 |
+| Platform | Config Discovery | Font Discovery | TrueColor TUI & UTF-8 |
 | :--- | :--- | :--- | :--- |
-| **Linux / BSD** | `$WEZTERM_CONFIG_FILE`, `$XDG_CONFIG_HOME/wezterm`, `~/.config/wezterm`, `~/.wezterm.lua` | `wezterm ls-fonts` + `fc-list` (binário nativo ou Flatpak) | Nativo |
-| **macOS** | `$WEZTERM_CONFIG_FILE`, `~/.config/wezterm`, `~/.wezterm.lua` | `wezterm ls-fonts` (`/Applications/WezTerm.app` / Homebrew + CoreText) | Nativo |
-| **Windows** | `%WEZTERM_CONFIG_FILE%`, `%USERPROFILE%\.config\wezterm`, `%USERPROFILE%\.wezterm.lua` | `wezterm.exe ls-fonts` (Program Files / Scoop / LocalAppData + DirectWrite) | UTF-8 + Console Virtual Terminal ANSI habilitados automaticamente |
+| **Linux / BSD** | `$WEZTERM_CONFIG_FILE`, `$XDG_CONFIG_HOME/wezterm`, `~/.config/wezterm`, `~/.wezterm.lua` | `wezterm ls-fonts` + `fc-list` (native binary or Flatpak `org.wezfurlong.wezterm`) | Native |
+| **macOS** | `$WEZTERM_CONFIG_FILE`, `~/.config/wezterm`, `~/.wezterm.lua` | `wezterm ls-fonts` (`/Applications/WezTerm.app` / Homebrew + CoreText) | Native |
+| **Windows** | `%WEZTERM_CONFIG_FILE%`, `%USERPROFILE%\.config\wezterm`, `%USERPROFILE%\.wezterm.lua` | `wezterm.exe ls-fonts` (Program Files / Scoop / LocalAppData + DirectWrite) | Automatic UTF-8 + Virtual Terminal ANSI mode |
 
 ---
 
-## 🧪 Testes Automatizados
+## 🧪 Running Tests
+
+All unit and integration tests isolate WezTerm configuration via `WEZTERM_CONFIG_FILE` in temporary directories so your personal `~/.config/wezterm` is never touched:
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
-## 📄 Licença
+---
 
-MIT License.
+## 📄 License
+
+[MIT License](LICENSE) © Marcus Vinícius Soares.

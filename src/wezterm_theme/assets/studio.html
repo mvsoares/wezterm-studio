@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>WezTerm Studio — Temas de Abas, Símbolos, Fontes & Aparência</title>
+  <title>WezTerm Studio — Tab Themes, Symbols, Fonts & Appearance</title>
   <style>
     :root {
       --bg: #0f111a;
@@ -587,55 +587,55 @@
       <div class="header-top">
         <div class="brand">
           <h1>✦ WezTerm Studio</h1>
-          <span class="mode-pill" id="modePill">Carregando...</span>
+          <span class="mode-pill" id="modePill">Loading...</span>
         </div>
 
         <div class="init-banner" id="initBanner">
-          <span>Seu <code>wezterm.lua</code> ainda não carrega o módulo.</span>
-          <button id="initBtn">⚡ Integrar Agora (init)</button>
+          <span>Your <code>wezterm.lua</code> is not linked yet.</span>
+          <button id="initBtn">⚡ Integrate Now (init)</button>
         </div>
 
         <div class="quick-strip">
           <div class="q-box">
-            <span class="q-label theme">Abas</span>
+            <span class="q-label theme">Tabs</span>
             <span class="q-val" id="hdrTheme">—</span>
           </div>
 
           <div class="q-box">
             <span class="q-label editor">Editor</span>
-            <span class="q-val" id="hdrEditorFont">Padrão</span>
+            <span class="q-val" id="hdrEditorFont">Default</span>
             <select class="q-select" id="hdrEditorWeight">
               <option>Thin</option><option>Light</option><option selected>Regular</option>
               <option>Medium</option><option>DemiBold</option><option>Bold</option>
             </select>
             <div class="stepper">
-              <button id="edDec" title="Diminuir">−</button>
+              <button id="edDec" title="Decrease">−</button>
               <input id="hdrEditorSize" type="text" value="13">
-              <button id="edInc" title="Aumentar">+</button>
+              <button id="edInc" title="Increase">+</button>
             </div>
           </div>
 
           <div class="q-box">
-            <span class="q-label tab">Fonte Aba</span>
-            <span class="q-val" id="hdrTabFont">Padrão</span>
+            <span class="q-label tab">Tab Font</span>
+            <span class="q-val" id="hdrTabFont">Default</span>
             <select class="q-select" id="hdrTabWeight">
               <option>Regular</option><option selected>Medium</option><option>DemiBold</option><option>Bold</option>
             </select>
             <div class="stepper">
-              <button id="tbDec" title="Diminuir">−</button>
+              <button id="tbDec" title="Decrease">−</button>
               <input id="hdrTabSize" type="text" value="11">
-              <button id="tbInc" title="Aumentar">+</button>
+              <button id="tbInc" title="Increase">+</button>
             </div>
           </div>
         </div>
 
-        <div class="status-pill" id="statusPill">Pronto</div>
+        <div class="status-pill" id="statusPill">Ready</div>
       </div>
 
       <nav class="nav-tabs">
-        <button class="nav-tab active" data-view="themes">🎨 Temas de Abas (60)</button>
-        <button class="nav-tab" data-view="fonts">🔤 Fontes & Tipografia</button>
-        <button class="nav-tab" data-view="appearance">🖥 Cores, Janela & Cursor</button>
+        <button class="nav-tab active" data-view="themes">🎨 Tab Bar Themes (60)</button>
+        <button class="nav-tab" data-view="fonts">🔤 Fonts & Typography</button>
+        <button class="nav-tab" data-view="appearance">🖥 Colors, Window & Cursor</button>
         <button class="nav-tab" data-view="backups">💾 Backups & Presets</button>
       </nav>
     </div>
@@ -645,13 +645,13 @@
     <!-- ── TAB 1: 60 TAB THEMES & SYMBOLS ── -->
     <section class="view-pane active" id="view-themes">
       <div class="toolbar">
-        <input class="search-input" id="themeSearch" type="search" placeholder="Buscar tema por nome, categoria, estilo ou #ID (ex: neon, powerline, catppuccin, #08)...">
+        <input class="search-input" id="themeSearch" type="search" placeholder="Search themes by name, category, style, or #ID (e.g. neon, powerline, catppuccin, #08)...">
         <label style="display:flex;align-items:center;gap:8px;font-size:0.83rem;color:var(--sub);">
-          Largura fixa (<strong id="lenLabel" style="color:var(--text)">15</strong>c):
+          Fixed width (<strong id="lenLabel" style="color:var(--text)">15</strong>c):
           <input id="lenSlider" type="range" min="4" max="32" value="15">
         </label>
-        <button class="btn btn-purple" id="toggleSymBtn">✦ Símbolos das Abas</button>
-        <button class="btn" id="randomThemeBtn">🎲 Aleatório</button>
+        <button class="btn btn-purple" id="toggleSymBtn">✦ Tab Symbols</button>
+        <button class="btn" id="randomThemeBtn">🎲 Random</button>
         <span id="themeCount" style="color:var(--sub);font-size:0.82rem;"></span>
       </div>
 
@@ -659,12 +659,12 @@
       <div class="sym-drawer" id="symDrawer">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
           <div>
-            <strong>✦ Construtor de Símbolos das Abas</strong>
+            <strong>✦ Tab Bar Symbol Builder</strong>
             <span id="symStateLabel" style="margin-left:8px;font-size:0.78rem;color:var(--sub);"></span>
           </div>
           <div style="display:flex;gap:8px;">
-            <button class="btn" id="resetSymBtn">↺ Usar Símbolos do Tema</button>
-            <button class="btn btn-primary" id="applySymBtn">✔ Aplicar Símbolos no WezTerm</button>
+            <button class="btn" id="resetSymBtn">↺ Use Theme Defaults</button>
+            <button class="btn btn-primary" id="applySymBtn">✔ Apply Symbols to WezTerm</button>
           </div>
         </div>
         <div class="sym-preview-box" id="symPreviewBox"></div>
@@ -678,10 +678,10 @@
     <!-- ── TAB 2: FONTS & TYPOGRAPHY ── -->
     <section class="view-pane" id="view-fonts">
       <div class="toolbar">
-        <input class="search-input" id="fontSearch" type="search" placeholder="Buscar fonte por família ou criador (ex: Victor, JetBrains, Iosevka, Cascadia, Meslo)...">
-        <button class="pill-btn active" id="filterAllFonts">Todas</button>
-        <button class="pill-btn" id="filterNerdFonts">Somente Nerd Fonts</button>
-        <button class="btn" id="refreshFontsBtn">↻ Recarregar Fontes</button>
+        <input class="search-input" id="fontSearch" type="search" placeholder="Search fonts by family or designer (e.g. Victor, JetBrains, Iosevka, Cascadia, Meslo)...">
+        <button class="pill-btn active" id="filterAllFonts">All Fonts</button>
+        <button class="pill-btn" id="filterNerdFonts">Nerd Fonts Only</button>
+        <button class="btn" id="refreshFontsBtn">↻ Reload System Fonts</button>
         <span id="fontCount" style="color:var(--sub);font-size:0.82rem;"></span>
       </div>
       <div class="fonts-grid" id="fontsGrid"></div>
@@ -691,78 +691,78 @@
     <section class="view-pane" id="view-appearance">
       <div class="settings-grid">
         <div class="s-card">
-          <h3>🎨 Esquema de Cores do Terminal (Color Scheme)</h3>
+          <h3>🎨 Terminal Color Scheme</h3>
           <div class="s-row">
-            <label for="schemeInput">Esquema ativo</label>
+            <label for="schemeInput">Active scheme</label>
             <div style="display:flex;gap:6px;flex:1;justify-content:flex-end;">
-              <input id="schemeInput" list="schemesDatalist" type="text" placeholder="Ex: Monokai Vivid, Catppuccin Mocha...">
+              <input id="schemeInput" list="schemesDatalist" type="text" placeholder="e.g. Monokai Vivid, Catppuccin Mocha...">
               <datalist id="schemesDatalist"></datalist>
-              <button class="btn btn-primary" id="applySchemeBtn">Aplicar</button>
-              <button class="btn" id="resetSchemeBtn" title="Voltar ao padrão">Padrão</button>
+              <button class="btn btn-primary" id="applySchemeBtn">Apply</button>
+              <button class="btn" id="resetSchemeBtn" title="Reset to WezTerm default">Default</button>
             </div>
           </div>
           <div>
-            <div style="font-size:0.76rem;color:var(--sub);margin-bottom:8px;">Favoritos rápidos (1 clique):</div>
+            <div style="font-size:0.76rem;color:var(--sub);margin-bottom:8px;">Quick favorites (1-click):</div>
             <div class="chips-wrap" id="quickSchemes"></div>
           </div>
         </div>
 
         <div class="s-card">
-          <h3>🪟 Janela & Transparência</h3>
+          <h3>🪟 Window & Opacity</h3>
           <div class="s-row">
-            <label for="opacityRange">Opacidade de fundo (<span id="opacityVal">1.00</span>)</label>
+            <label for="opacityRange">Background opacity (<span id="opacityVal">1.00</span>)</label>
             <input id="opacityRange" type="range" min="0.2" max="1.0" step="0.02" value="1.0">
           </div>
           <div class="s-row">
-            <label for="paddingInput">Margem interna (Padding px)</label>
+            <label for="paddingInput">Window padding (px)</label>
             <input id="paddingInput" type="number" min="0" max="64" step="2" value="10">
           </div>
           <div class="s-row">
-            <label for="decorationsSelect">Decoração da janela</label>
+            <label for="decorationsSelect">Window decorations</label>
             <select id="decorationsSelect">
               <option value="INTEGRATED_BUTTONS | RESIZE">INTEGRATED_BUTTONS | RESIZE</option>
               <option value="TITLE | RESIZE">TITLE | RESIZE</option>
-              <option value="RESIZE">RESIZE (Sem barra de título)</option>
-              <option value="NONE">NONE (Sem bordas)</option>
+              <option value="RESIZE">RESIZE (No title bar)</option>
+              <option value="NONE">NONE (Borderless)</option>
             </select>
           </div>
           <div class="s-row">
-            <label for="lineHeightInput">Altura de linha (Line Height)</label>
+            <label for="lineHeightInput">Line height</label>
             <input id="lineHeightInput" type="number" min="0.8" max="2.0" step="0.05" value="1.0">
           </div>
         </div>
 
         <div class="s-card">
-          <h3>▏Cursor, Barra de Abas & Performance</h3>
+          <h3>▏Cursor, Tab Bar & Performance</h3>
           <div class="s-row">
-            <label for="cursorStyleSelect">Estilo do cursor</label>
+            <label for="cursorStyleSelect">Cursor style</label>
             <select id="cursorStyleSelect">
-              <option value="BlinkingBar">BlinkingBar (Barra piscante)</option>
-              <option value="SteadyBar">SteadyBar (Barra fixa)</option>
-              <option value="BlinkingBlock">BlinkingBlock (Bloco piscante)</option>
-              <option value="SteadyBlock">SteadyBlock (Bloco fixo)</option>
-              <option value="BlinkingUnderline">BlinkingUnderline (Sublinhado piscante)</option>
-              <option value="SteadyUnderline">SteadyUnderline (Sublinhado fixo)</option>
+              <option value="BlinkingBar">BlinkingBar</option>
+              <option value="SteadyBar">SteadyBar</option>
+              <option value="BlinkingBlock">BlinkingBlock</option>
+              <option value="SteadyBlock">SteadyBlock</option>
+              <option value="BlinkingUnderline">BlinkingUnderline</option>
+              <option value="SteadyUnderline">SteadyUnderline</option>
             </select>
           </div>
           <div class="s-row">
-            <label for="cursorBlinkInput">Velocidade do cursor (ms)</label>
+            <label for="cursorBlinkInput">Cursor blink rate (ms)</label>
             <input id="cursorBlinkInput" type="number" min="0" max="2000" step="50" value="500">
           </div>
           <div class="s-row">
-            <label for="scrollbackInput">Histórico (Scrollback lines)</label>
+            <label for="scrollbackInput">Scrollback lines</label>
             <input id="scrollbackInput" type="number" min="500" max="200000" step="500" value="5000">
           </div>
           <div class="s-row">
-            <label for="tabBottomCheck">Barra de abas na parte inferior</label>
+            <label for="tabBottomCheck">Place tab bar at bottom</label>
             <input id="tabBottomCheck" type="checkbox" checked>
           </div>
           <div class="s-row">
-            <label for="hideOneTabCheck">Ocultar barra quando houver apenas 1 aba</label>
+            <label for="hideOneTabCheck">Hide tab bar when only one tab is open</label>
             <input id="hideOneTabCheck" type="checkbox">
           </div>
           <div class="s-row">
-            <label for="bellCheck">Campainha sonora (Audible Bell)</label>
+            <label for="bellCheck">Audible bell</label>
             <input id="bellCheck" type="checkbox">
           </div>
         </div>
@@ -773,25 +773,25 @@
     <section class="view-pane" id="view-backups">
       <div class="settings-grid">
         <div class="s-card">
-          <h3>💾 Backups Instantâneos</h3>
+          <h3>💾 Instant Backups</h3>
           <div style="display:flex;gap:8px;">
-            <input class="search-input" id="backupLabelInput" type="text" placeholder="Rótulo opcional (ex: antes_do_teste)...">
-            <button class="btn btn-primary" id="createBackupBtn">+ Criar Backup</button>
+            <input class="search-input" id="backupLabelInput" type="text" placeholder="Optional label (e.g. before_test)...">
+            <button class="btn btn-primary" id="createBackupBtn">+ Save Backup</button>
           </div>
           <div class="bkp-list" id="backupsList"></div>
         </div>
 
         <div class="s-card">
-          <h3>📦 Preset Portátil (Linux · macOS · Windows)</h3>
+          <h3>📦 Portable Preset (Linux · macOS · Windows)</h3>
           <p style="font-size:0.81rem;color:var(--sub);">
-            Exporte ou importe seu setup completo (tema de abas, símbolos, fontes, cores e janela) em JSON.
+            Export or import your full setup (tab theme, symbols, fonts, color scheme, and window settings) as JSON.
           </p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button class="btn" id="loadExportBtn">⬇ Carregar Configuração Atual</button>
-            <button class="btn" id="downloadPresetBtn">💾 Baixar .json</button>
-            <button class="btn btn-primary" id="importPresetBtn">⚡ Aplicar JSON Abaixo</button>
+            <button class="btn" id="loadExportBtn">⬇ Load Current Setup</button>
+            <button class="btn" id="downloadPresetBtn">💾 Download .json</button>
+            <button class="btn btn-primary" id="importPresetBtn">⚡ Apply JSON Below</button>
           </div>
-          <textarea class="preset-area" id="presetTextarea" placeholder='Clique em "Carregar Configuração Atual" ou cole um preset JSON aqui...'></textarea>
+          <textarea class="preset-area" id="presetTextarea" placeholder='Click "Load Current Setup" or paste a preset JSON here...'></textarea>
         </div>
       </div>
     </section>
@@ -927,7 +927,7 @@
       const t = withSymbols(rawTheme, symOverride);
       const p = t.palette;
       const pill = !!t.use_fancy && t.style !== "powerline";
-      const names = ["setup", "mvsoares", "careplus", "cloud-run"].map(n => fmtFixed(n, len));
+      const names = ["setup", "workspace", "backend", "cloud-run"].map(n => fmtFixed(n, len));
       const s = t.style;
 
       if (s === "powerline") {
@@ -975,7 +975,7 @@
         ).join("");
       }
       if (s === "project_color") {
-        const pnames = ["careplus", "linux-setup", "careplus", "infra"];
+        const pnames = ["backend", "wezterm-studio", "backend", "infra"];
         return pnames.map((nm, i) => {
           const c = p[projectSlot(nm, p.length)];
           const tx = i === 0 ? `${c.active_sym||""}1` : `${i+1}${c.inactive_sym||""}`;
@@ -990,7 +990,7 @@
     }
 
     function shortFont(f) {
-      return f ? f.replace(/ Nerd Font( Mono| Propo)?$/, " NF") : "Padrão";
+      return f ? f.replace(/ Nerd Font( Mono| Propo)?$/, " NF") : "Default";
     }
 
     function syncHeaderAndAppearanceUI() {
@@ -1042,7 +1042,7 @@
     function renderSymbolDrawer() {
       const curTheme = BOOT.themes.find(t => t.id === STATE.theme_id) || BOOT.themes[0];
       const len = parseInt(document.getElementById("lenSlider").value, 10) || 15;
-      document.getElementById("symStateLabel").textContent = draftSymbols ? "(Personalizado)" : "(Símbolos nativos do tema)";
+      document.getElementById("symStateLabel").textContent = draftSymbols ? "(Custom)" : "(Theme defaults)";
       const previewEl = document.getElementById("symPreviewBox");
       previewEl.style.background = curTheme.bg_bar;
       previewEl.innerHTML = `<div class="bar-wrap" style="background:${curTheme.bg_bar};border:none;padding:2px;">${renderBarHTML(curTheme, len, draftSymbols)}</div>`;
@@ -1081,7 +1081,7 @@
           || (t.style || "").toLowerCase().includes(q);
       });
 
-      document.getElementById("themeCount").textContent = `${list.length} de ${BOOT.themes.length} temas`;
+      document.getElementById("themeCount").textContent = `${list.length} of ${BOOT.themes.length} themes`;
       const grid = document.getElementById("themesGrid");
       grid.innerHTML = list.map(t => {
         const idPad = String(t.id).padStart(2, "0");
@@ -1091,7 +1091,7 @@
         return `<article class="theme-card${isAct ? " is-active" : ""}">
           <div class="tc-head">
             <div><span class="tc-id">#${idPad}</span><span class="tc-name">${esc(t.name)}</span><span class="tc-cat">[${esc(t.category)}]</span></div>
-            ${isAct ? '<span class="active-tag">★ ATIVO</span>' : ''}
+            ${isAct ? '<span class="active-tag">★ ACTIVE</span>' : ''}
           </div>
           <div class="swatches">${sw}</div>
           <div class="bar-wrap" style="background:${t.bg_bar}">${renderBarHTML(t, len, draftSymbols)}</div>
@@ -1099,9 +1099,9 @@
           <div class="tc-foot">
             <code class="cli-hint">${cmd}</code>
             <div style="display:flex;gap:6px;">
-              <button class="btn copy-cmd" data-cmd="${cmd}">Copiar CLI</button>
+              <button class="btn copy-cmd" data-cmd="${cmd}">Copy CLI</button>
               <button class="btn ${isAct ? 'btn-green' : 'btn-primary'} apply-theme-btn" data-id="${t.id}">
-                ${isAct ? '✔ Aplicado' : '⚡ Aplicar Agora'}
+                ${isAct ? '✔ Active' : '⚡ Apply Now'}
               </button>
             </div>
           </div>
@@ -1111,7 +1111,7 @@
       grid.querySelectorAll(".apply-theme-btn").forEach(btn => {
         btn.addEventListener("click", async () => {
           const tid = parseInt(btn.dataset.id, 10);
-          setStatus(`Aplicando tema #${tid}...`);
+          setStatus(`Applying theme #${tid}...`);
           const res = await apiPost("/api/apply-tab-theme", {
             theme_id: tid,
             tab_title_len: len,
@@ -1133,7 +1133,7 @@
         btn.addEventListener("click", () => {
           navigator.clipboard.writeText(btn.dataset.cmd);
           const old = btn.textContent;
-          btn.textContent = "✔ Copiado";
+          btn.textContent = "✔ Copied";
           setTimeout(() => { btn.textContent = old; }, 1200);
         });
       });
@@ -1147,7 +1147,7 @@
         if (!q) return true;
         return f.name.toLowerCase().includes(q) || (f.desc || "").toLowerCase().includes(q);
       });
-      document.getElementById("fontCount").textContent = `${list.length} de ${FONTS.length} fontes`;
+      document.getElementById("fontCount").textContent = `${list.length} of ${FONTS.length} fonts`;
       const iconsSample = "⚡ \ue0b0 \ue0b4 \udb80\udea2 \ue73c \udb80\udd69 \uf489 \udb80\udf0e \udb81\udc8b ★ ❶";
 
       const grid = document.getElementById("fontsGrid");
@@ -1159,17 +1159,17 @@
             <span class="fc-name">${esc(f.name)}</span>
             <div class="fc-badges">
               ${isEd ? '<span class="f-badge ed">EDITOR</span>' : ''}
-              ${isTb ? '<span class="f-badge tb">ABAS</span>' : ''}
+              ${isTb ? '<span class="f-badge tb">TABS</span>' : ''}
               ${f.is_nerd ? '<span class="f-badge nf">NERD</span>' : ''}
               <span class="f-author">${esc(f.desc)}</span>
             </div>
           </div>
           <div class="fc-sample" style="font-family:'${esc(f.family)}',monospace">${esc(f.text)}</div>
-          <div class="fc-code" style="font-family:'${esc(f.family)}',monospace">const greet = (n) =&gt; \`Olá, \${n}!\`; // != === &gt;= |&gt; 0Oo1lI</div>
+          <div class="fc-code" style="font-family:'${esc(f.family)}',monospace">const greet = (n) =&gt; \`Hello, \${n}!\`; // != === &gt;= |&gt; 0Oo1lI</div>
           <div class="fc-icons" style="font-family:'${esc(f.family)}',monospace">${iconsSample}</div>
           <div class="fc-actions">
-            <button class="btn apply-ed-font" data-fam="${esc(f.family)}">Aplicar no Editor</button>
-            <button class="btn btn-purple apply-tb-font" data-fam="${esc(f.family)}">Aplicar nas Abas</button>
+            <button class="btn apply-ed-font" data-fam="${esc(f.family)}">Apply to Editor</button>
+            <button class="btn btn-purple apply-tb-font" data-fam="${esc(f.family)}">Apply to Tabs</button>
           </div>
         </article>`;
       }).join("");
@@ -1177,19 +1177,19 @@
       grid.querySelectorAll(".apply-ed-font").forEach(btn => {
         btn.addEventListener("click", () => updateAppearance(
           { font_family: btn.dataset.fam, font_weight: document.getElementById("hdrEditorWeight").value },
-          `Fonte do Editor → ${btn.dataset.fam}`
+          `Editor font → ${btn.dataset.fam}`
         ));
       });
       grid.querySelectorAll(".apply-tb-font").forEach(btn => {
         btn.addEventListener("click", () => updateAppearance(
           { tab_font_family: btn.dataset.fam, tab_font_weight: document.getElementById("hdrTabWeight").value },
-          `Fonte das Abas → ${btn.dataset.fam}`
+          `Tab font → ${btn.dataset.fam}`
         ));
       });
     }
 
     async function updateAppearance(updates, label) {
-      setStatus("Aplicando...");
+      setStatus("Applying...");
       const res = await apiPost("/api/apply-appearance", { updates, label });
       if (res.ok) {
         STATE = res.state;
@@ -1211,7 +1211,7 @@
     function renderBackupsList(backups) {
       const el = document.getElementById("backupsList");
       if (!backups || !backups.length) {
-        el.innerHTML = `<div style="color:var(--sub);font-size:0.84rem;padding:8px 0;">Nenhum backup salvo ainda.</div>`;
+        el.innerHTML = `<div style="color:var(--sub);font-size:0.84rem;padding:8px 0;">No backups saved yet.</div>`;
         return;
       }
       el.innerHTML = backups.map(b => `
@@ -1221,7 +1221,7 @@
             ${b.label ? `<span style="color:var(--amber);margin-left:6px;">[${esc(b.label)}]</span>` : ''}
             <div style="color:var(--sub);font-size:0.75rem;">${esc(b.date_str)} · ${esc(b.filename)}</div>
           </div>
-          <button class="btn restore-bkp-btn" data-idx="${b.index}">↺ Restaurar</button>
+          <button class="btn restore-bkp-btn" data-idx="${b.index}">↺ Restore</button>
         </div>
       `).join("");
 
@@ -1280,7 +1280,7 @@
       });
       if (res.ok) {
         STATE = res.state;
-        setStatus(`✔ Largura das abas ajustada para ${len} caracteres`, "ok");
+        setStatus(`✔ Fixed tab width set to ${len} chars`, "ok");
       }
     });
 
@@ -1304,7 +1304,7 @@
         STATE = res.state;
         renderThemesGrid();
         renderSymbolDrawer();
-        setStatus("✔ Símbolos aplicados ao WezTerm!", "ok");
+        setStatus("✔ Custom symbols applied to WezTerm!", "ok");
       } else {
         setStatus("✖ " + res.msg, "err");
       }
@@ -1318,7 +1318,7 @@
         syncHeaderAndAppearanceUI();
         renderThemesGrid();
         renderSymbolDrawer();
-        setStatus(`🎲 Tema aleatório #${pick.id} (${pick.name}) aplicado!`, "ok");
+        setStatus(`🎲 Random theme #${pick.id} (${pick.name}) applied!`, "ok");
       }
     });
 
@@ -1330,14 +1330,14 @@
       el.value = v;
       updateAppearance({ [key]: v }, `${labelPrefix} → ${v}pt`);
     }
-    document.getElementById("edDec").addEventListener("click", () => stepSize("hdrEditorSize", -1, "font_size", "Tamanho Editor"));
-    document.getElementById("edInc").addEventListener("click", () => stepSize("hdrEditorSize", +1, "font_size", "Tamanho Editor"));
-    document.getElementById("tbDec").addEventListener("click", () => stepSize("hdrTabSize", -1, "tab_font_size", "Tamanho Abas"));
-    document.getElementById("tbInc").addEventListener("click", () => stepSize("hdrTabSize", +1, "tab_font_size", "Tamanho Abas"));
-    document.getElementById("hdrEditorSize").addEventListener("change", e => updateAppearance({ font_size: parseFloat(e.target.value) || 13 }, "Tamanho Editor atualizado"));
-    document.getElementById("hdrTabSize").addEventListener("change", e => updateAppearance({ tab_font_size: parseFloat(e.target.value) || 11 }, "Tamanho Abas atualizado"));
-    document.getElementById("hdrEditorWeight").addEventListener("change", e => updateAppearance({ font_weight: e.target.value }, `Peso Editor → ${e.target.value}`));
-    document.getElementById("hdrTabWeight").addEventListener("change", e => updateAppearance({ tab_font_weight: e.target.value }, `Peso Abas → ${e.target.value}`));
+    document.getElementById("edDec").addEventListener("click", () => stepSize("hdrEditorSize", -1, "font_size", "Editor size"));
+    document.getElementById("edInc").addEventListener("click", () => stepSize("hdrEditorSize", +1, "font_size", "Editor size"));
+    document.getElementById("tbDec").addEventListener("click", () => stepSize("hdrTabSize", -1, "tab_font_size", "Tab size"));
+    document.getElementById("tbInc").addEventListener("click", () => stepSize("hdrTabSize", +1, "tab_font_size", "Tab size"));
+    document.getElementById("hdrEditorSize").addEventListener("change", e => updateAppearance({ font_size: parseFloat(e.target.value) || 13 }, "Editor font size updated"));
+    document.getElementById("hdrTabSize").addEventListener("change", e => updateAppearance({ tab_font_size: parseFloat(e.target.value) || 11 }, "Tab font size updated"));
+    document.getElementById("hdrEditorWeight").addEventListener("change", e => updateAppearance({ font_weight: e.target.value }, `Editor weight → ${e.target.value}`));
+    document.getElementById("hdrTabWeight").addEventListener("change", e => updateAppearance({ tab_font_weight: e.target.value }, `Tab weight → ${e.target.value}`));
 
     // Fonts filter
     document.getElementById("fontSearch").addEventListener("input", renderFontsGrid);
@@ -1354,12 +1354,12 @@
       renderFontsGrid();
     });
     document.getElementById("refreshFontsBtn").addEventListener("click", async () => {
-      setStatus("Recarregando fontes...");
+      setStatus("Reloading system fonts...");
       const res = await apiGet("/api/fonts?refresh=1");
       if (res.ok) {
         FONTS = res.fonts;
         renderFontsGrid();
-        setStatus(`✔ ${FONTS.length} fontes carregadas`, "ok");
+        setStatus(`✔ ${FONTS.length} fonts loaded`, "ok");
       }
     });
 
@@ -1375,24 +1375,24 @@
     });
     document.getElementById("applySchemeBtn").addEventListener("click", () => {
       const s = document.getElementById("schemeInput").value.trim();
-      updateAppearance({ color_scheme: s || "Default" }, `Color Scheme → ${s || "Padrão"}`);
+      updateAppearance({ color_scheme: s || "Default" }, `Color Scheme → ${s || "Default"}`);
     });
     document.getElementById("resetSchemeBtn").addEventListener("click", () => {
       document.getElementById("schemeInput").value = "";
-      updateAppearance({ color_scheme: "Default" }, "Color Scheme → Padrão");
+      updateAppearance({ color_scheme: "Default" }, "Color Scheme → Default");
     });
 
     document.getElementById("opacityRange").addEventListener("input", e => {
       document.getElementById("opacityVal").textContent = Number(e.target.value).toFixed(2);
     });
     document.getElementById("opacityRange").addEventListener("change", e => {
-      updateAppearance({ window_opacity: parseFloat(e.target.value) }, `Opacidade → ${Number(e.target.value).toFixed(2)}`);
+      updateAppearance({ window_opacity: parseFloat(e.target.value) }, `Opacity → ${Number(e.target.value).toFixed(2)}`);
     });
     document.getElementById("paddingInput").addEventListener("change", e => {
       updateAppearance({ window_padding: parseInt(e.target.value, 10) || 0 }, `Padding → ${e.target.value}px`);
     });
     document.getElementById("decorationsSelect").addEventListener("change", e => {
-      updateAppearance({ window_decorations: e.target.value }, `Decoração → ${e.target.value}`);
+      updateAppearance({ window_decorations: e.target.value }, `Decorations → ${e.target.value}`);
     });
     document.getElementById("lineHeightInput").addEventListener("change", e => {
       updateAppearance({ line_height: parseFloat(e.target.value) || 1.0 }, `Line Height → ${e.target.value}`);
@@ -1407,13 +1407,13 @@
       updateAppearance({ scrollback_lines: parseInt(e.target.value, 10) || 5000 }, `Scrollback → ${e.target.value}`);
     });
     document.getElementById("tabBottomCheck").addEventListener("change", e => {
-      updateAppearance({ tab_bar_at_bottom: e.target.checked }, `Abas embaixo → ${e.target.checked ? "Sim" : "Não"}`);
+      updateAppearance({ tab_bar_at_bottom: e.target.checked }, `Tab bar at bottom → ${e.target.checked ? "Yes" : "No"}`);
     });
     document.getElementById("hideOneTabCheck").addEventListener("change", e => {
-      updateAppearance({ hide_tab_bar_if_only_one_tab: e.target.checked }, `Ocultar com 1 aba → ${e.target.checked ? "Sim" : "Não"}`);
+      updateAppearance({ hide_tab_bar_if_only_one_tab: e.target.checked }, `Hide single tab → ${e.target.checked ? "Yes" : "No"}`);
     });
     document.getElementById("bellCheck").addEventListener("change", e => {
-      updateAppearance({ audible_bell: e.target.checked ? "SystemBeep" : "Disabled" }, "Audible Bell atualizado");
+      updateAppearance({ audible_bell: e.target.checked ? "SystemBeep" : "Disabled" }, "Audible bell updated");
     });
 
     // Backups & Presets
@@ -1433,7 +1433,7 @@
       const res = await apiGet("/api/export");
       if (res.ok) {
         document.getElementById("presetTextarea").value = JSON.stringify(res.preset, null, 2);
-        setStatus("✔ Preset atual carregado", "ok");
+        setStatus("✔ Current preset loaded", "ok");
       }
     });
 
@@ -1464,14 +1464,14 @@
     });
 
     async function boot() {
-      setStatus("Inicializando estúdio...");
+      setStatus("Initializing studio...");
       BOOT = await apiGet("/api/bootstrap");
       STATE = BOOT.state;
       draftSymbols = STATE.symbols || null;
 
       // Build category pills
       const catEl = document.getElementById("catPills");
-      catEl.innerHTML = `<button class="pill-btn active" data-cat="">Todos (${BOOT.themes.length})</button>` +
+      catEl.innerHTML = `<button class="pill-btn active" data-cat="">All (${BOOT.themes.length})</button>` +
         BOOT.categories.map(c => `<button class="pill-btn" data-cat="${esc(c.name)}">${esc(c.name)} (${String(c.lo).padStart(2,"0")}-${String(c.hi).padStart(2,"0")})</button>`).join("");
       catEl.querySelectorAll(".pill-btn").forEach(btn => {
         btn.addEventListener("click", () => {
@@ -1485,7 +1485,7 @@
       syncHeaderAndAppearanceUI();
       renderThemesGrid();
       renderSymbolDrawer();
-      setStatus("Pronto", "ok");
+      setStatus("Ready", "ok");
 
       // Load fonts & schemes asynchronously
       apiGet("/api/fonts").then(res => {

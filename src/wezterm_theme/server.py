@@ -79,7 +79,7 @@ def _serialize_symbol_groups() -> list[dict[str, Any]]:
 
 def _short_err(err: str | None) -> str:
     if not err:
-        return "Erro desconhecido"
+        return "Unknown error"
     lines = [ln.strip() for ln in err.strip().splitlines() if ln.strip()]
     return lines[-1][:200] if lines else err[:200]
 
@@ -160,7 +160,7 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"ok": True, "preset": json.loads(raw)})
             return
 
-        self._send_json({"ok": False, "msg": f"Rota não encontrada: {route}"}, status=404)
+        self._send_json({"ok": False, "msg": f"Route not found: {route}"}, status=404)
 
     def do_POST(self) -> None:
         parsed = urllib.parse.urlparse(self.path)
@@ -168,7 +168,7 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
         try:
             body = self._read_json_body()
         except Exception as exc:
-            self._send_json({"ok": False, "msg": f"JSON inválido: {exc}"}, status=400)
+            self._send_json({"ok": False, "msg": f"Invalid JSON payload: {exc}"}, status=400)
             return
 
         if route == "/api/init":
@@ -182,7 +182,7 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 tid = get_current_state()["theme_id"]
             theme = get_theme_by_id(int(tid))
             if not theme:
-                self._send_json({"ok": False, "msg": f"Tema #{tid} inválido."}, status=400)
+                self._send_json({"ok": False, "msg": f"Invalid theme #{tid}."}, status=400)
                 return
 
             tlen = body.get("tab_title_len")
@@ -196,11 +196,11 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
 
             ok, _, err = apply_theme(theme, tab_title_len=tlen, symbols=sym_arg)
             if not ok:
-                self._send_json({"ok": False, "msg": f"WezTerm rejeitou a configuração: {_short_err(err)}"})
+                self._send_json({"ok": False, "msg": f"WezTerm rejected configuration: {_short_err(err)}"})
                 return
             self._send_json({
                 "ok": True,
-                "msg": f"Tema #{theme['id']:02d} ({theme['name']}) aplicado!",
+                "msg": f"Theme #{theme['id']:02d} ({theme['name']}) applied!",
                 "state": get_current_state(),
             })
             return
@@ -208,13 +208,13 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
         if route == "/api/apply-appearance":
             updates = body.get("updates")
             if not isinstance(updates, dict) or not updates:
-                self._send_json({"ok": False, "msg": "Nenhuma alteração informada."}, status=400)
+                self._send_json({"ok": False, "msg": "No appearance updates provided."}, status=400)
                 return
             ok, err = apply_appearance(updates)
             if not ok:
-                self._send_json({"ok": False, "msg": f"WezTerm rejeitou a alteração: {_short_err(err)}"})
+                self._send_json({"ok": False, "msg": f"WezTerm rejected update: {_short_err(err)}"})
                 return
-            label = body.get("label") or "Configuração atualizada!"
+            label = body.get("label") or "Settings updated!"
             self._send_json({"ok": True, "msg": label, "state": get_current_state()})
             return
 
@@ -222,12 +222,11 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             label = (body.get("label") or "").strip() or None
             dest = backup_current_config(label=label)
             if not dest:
-                # Ensure a module exists first, then back it up
                 st = get_current_state()
                 t = get_theme_by_id(st["theme_id"]) or THEMES[9]
                 apply_theme(t)
                 dest = backup_current_config(label=label)
-            msg = f"Backup salvo: {dest.name}" if dest else "Nenhum arquivo ativo para backup."
+            msg = f"Backup saved: {dest.name}" if dest else "No active theme file found to back up."
             self._send_json({"ok": bool(dest), "msg": msg, "backups": _serialize_backups()})
             return
 
@@ -245,13 +244,13 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
         if route == "/api/import":
             preset = body.get("preset")
             if preset is None:
-                self._send_json({"ok": False, "msg": "Campo 'preset' ausente."}, status=400)
+                self._send_json({"ok": False, "msg": "Missing 'preset' field."}, status=400)
                 return
             ok, msg = import_preset(preset)
             self._send_json({"ok": ok, "msg": msg, "state": get_current_state()})
             return
 
-        self._send_json({"ok": False, "msg": f"Rota POST não encontrada: {route}"}, status=404)
+        self._send_json({"ok": False, "msg": f"POST route not found: {route}"}, status=404)
 
 
 class ReusableThreadingHTTPServer(ThreadingHTTPServer):
@@ -267,7 +266,7 @@ def _find_free_port(host: str, preferred: int, max_tries: int = 15) -> int:
                 return p
             except OSError:
                 continue
-    raise OSError(f"Nenhuma porta disponível entre {preferred} e {preferred + max_tries - 1}")
+    raise OSError(f"No available TCP port between {preferred} and {preferred + max_tries - 1}")
 
 
 def create_server(host: str = "127.0.0.1", port: int | None = None) -> tuple[ThreadingHTTPServer, int]:
@@ -286,9 +285,9 @@ def run_studio_server(
     httpd, actual_port = create_server(host=host, port=port)
     url = f"http://{host}:{actual_port}"
 
-    print(f"\n  \033[1;36m✦ WezTerm Studio v{__version__}\033[0m rodando em: \033[1;32m{url}\033[0m")
-    print("  \033[2mAlterações de temas de abas, símbolos, fontes e cores recarregam o WezTerm em tempo real.\033[0m")
-    print("  \033[2mPressione Ctrl+C para encerrar o servidor.\033[0m\n")
+    print(f"\n  \033[1;36m✦ WezTerm Studio v{__version__}\033[0m running at: \033[1;32m{url}\033[0m")
+    print("  \033[2mChanges to tab themes, symbols, fonts, and colors hot-reload WezTerm in real time.\033[0m")
+    print("  \033[2mPress Ctrl+C to stop the server.\033[0m\n")
 
     if open_browser and has_gui_display():
         try:
@@ -299,6 +298,6 @@ def run_studio_server(
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\n  Encerrando WezTerm Studio.")
+        print("\n  Stopping WezTerm Studio.")
     finally:
         httpd.server_close()

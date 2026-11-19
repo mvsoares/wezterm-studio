@@ -272,7 +272,7 @@ def validate_config(config_path: Path) -> str | None:
     except FileNotFoundError:
         return None
     except subprocess.TimeoutExpired:
-        return "o WezTerm demorou demais para validar a configuração"
+        return "WezTerm timed out while validating the configuration"
     errors = [line for line in res.stderr.splitlines() if " ERROR " in line]
     return "\n".join(errors) or None
 
@@ -327,7 +327,7 @@ def init_wezterm_config(paths: dict[str, Path] | None = None) -> tuple[bool, str
             state = get_current_state(paths)
             theme = get_theme_by_id(state["theme_id"]) or THEMES[9]
             apply_theme(theme, tab_title_len=state["tab_title_len"], symbols=state["symbols"], paths=paths)
-        return True, f"Modo WezTerm JSON Loader detectado e pronto em {paths['config_file']}"
+        return True, f"WezTerm JSON Loader mode detected and ready at {paths['config_file']}"
 
     cfg_file = paths["config_file"]
     # Ensure studio_lua exists first
@@ -369,12 +369,12 @@ def init_wezterm_config(paths: dict[str, Path] | None = None) -> tuple[bool, str
         err = validate_config(cfg_file)
         if err:
             cfg_file.unlink(missing_ok=True)
-            return False, f"Falha ao validar novo wezterm.lua: {err}"
-        return True, f"Criado {cfg_file} integrado ao wezterm-theme!"
+            return False, f"Failed to validate newly created wezterm.lua: {err}"
+        return True, f"Created {cfg_file} integrated with wezterm-theme!"
 
     original = cfg_file.read_text(encoding="utf-8")
     if HOOK_START in original:
-        return True, f"wezterm-theme já está integrado em {cfg_file}"
+        return True, f"wezterm-theme is already integrated into {cfg_file}"
 
     # Match `return <identifier>` near EOF
     m_ret = re.search(r"^([ \t]*)return[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:--.*)?$", original, re.MULTILINE)
@@ -393,8 +393,8 @@ def init_wezterm_config(paths: dict[str, Path] | None = None) -> tuple[bool, str
         if not m_tbl:
             return (
                 False,
-                f"Não foi possível localizar 'return config' em {cfg_file}. "
-                f"Adicione manualmente antes do return:\n{_build_hook_block('config')}",
+                f"Could not find 'return config' in {cfg_file}. "
+                f"Add the following block manually right before your return statement:\n{_build_hook_block('config')}",
             )
         last = m_tbl[-1]
         hook = _build_hook_block("_wt_config")
@@ -415,9 +415,9 @@ def init_wezterm_config(paths: dict[str, Path] | None = None) -> tuple[bool, str
     err = validate_config(cfg_file)
     if err:
         cfg_file.write_text(original, encoding="utf-8")
-        return False, f"O WezTerm rejeitou a alteração em {cfg_file} (revertido automaticamente): {err}"
+        return False, f"WezTerm rejected the change in {cfg_file} (automatically rolled back): {err}"
 
-    return True, f"Integração adicionada com sucesso em {cfg_file}"
+    return True, f"Successfully integrated wezterm-theme into {cfg_file}"
 
 
 def uninstall_wezterm_config(
@@ -441,7 +441,7 @@ def uninstall_wezterm_config(
             err = validate_config(cfg_file)
             if err:
                 cfg_file.write_text(original, encoding="utf-8")
-                return False, f"Erro ao remover bloco de {cfg_file} (revertido): {err}"
+                return False, f"Failed to remove hook block from {cfg_file} (rolled back): {err}"
             removed_hook = True
 
     if remove_files:
@@ -449,8 +449,8 @@ def uninstall_wezterm_config(
         paths["studio_json"].unlink(missing_ok=True)
 
     if removed_hook:
-        return True, f"Hook do wezterm-theme removido de {cfg_file}."
-    return True, "Nenhum hook de modo standalone encontrado para remover."
+        return True, f"Removed wezterm-theme hook from {cfg_file}."
+    return True, "No standalone hook found to remove."
 
 
 def _sync_loader_settings(
@@ -619,13 +619,13 @@ def get_available_backups(paths: dict[str, Path] | None = None) -> list[dict[str
             label = m.group(2) or ""
             try:
                 dt = datetime.strptime(raw_stamp, "%Y%m%d-%H%M%S")
-                date_str = dt.strftime("%d/%m/%Y %H:%M:%S")
+                date_str = dt.strftime("%Y-%m-%d %H:%M:%S")
             except Exception:
                 date_str = raw_stamp
         else:
-            date_str = datetime.fromtimestamp(f.stat().st_mtime).strftime("%d/%m/%Y %H:%M:%S")
+            date_str = datetime.fromtimestamp(f.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
 
-        theme_info = "Configuração Personalizada"
+        theme_info = "Custom Configuration"
         theme_id = None
         content_norm = ""
         try:
@@ -636,7 +636,7 @@ def get_available_backups(paths: dict[str, Path] | None = None) -> list[dict[str
             len_suffix = f" · {lm.group(1)}c" if lm else ""
             if tm:
                 theme_id = int(tm.group(1))
-                theme_info = f"Tema #{theme_id:02d}: {tm.group(2).strip()}{len_suffix}"
+                theme_info = f"Theme #{theme_id:02d}: {tm.group(2).strip()}{len_suffix}"
         except Exception:
             pass
 
@@ -806,7 +806,7 @@ def restore_backup(
     paths = paths or resolve_wezterm_paths()
     backups = get_available_backups(paths=paths)
     if not backups:
-        return False, f"Nenhum backup encontrado em {paths['backup_dir']}"
+        return False, f"No backups found in {paths['backup_dir']}"
 
     selected = None
     spec_str = str(target_spec).strip()
@@ -815,14 +815,14 @@ def restore_backup(
         if 0 <= idx < len(backups):
             selected = backups[idx]
         else:
-            return False, f"Índice de backup inválido: {spec_str}. Escolha entre 1 e {len(backups)}."
+            return False, f"Invalid backup index: {spec_str}. Choose between 1 and {len(backups)}."
     else:
         for b in backups:
             if spec_str in b["filename"] or (b["label"] and spec_str.lower() in b["label"].lower()):
                 selected = b
                 break
         if not selected:
-            return False, f"Nenhum backup correspondente a '{spec_str}'."
+            return False, f"No backup matching '{spec_str}'."
 
     loader = is_loader_mode(paths)
     target_lua = paths["tab_theme_lua"] if loader else paths["studio_lua"]
@@ -843,7 +843,7 @@ def restore_backup(
                 target_json.write_text(prev_json, encoding="utf-8")
             return (
                 False,
-                f"O WezTerm rejeitou esse backup; a configuração atual foi mantida. "
+                f"WezTerm rejected this backup; current configuration was kept. "
                 f"{err.strip().splitlines()[-1][:160]}",
             )
 
@@ -854,10 +854,10 @@ def restore_backup(
         idx_display = backups.index(selected) + 1
         return (
             True,
-            f"Backup [{idx_display}] ({selected['theme_info']} - {selected['date_str']}) restaurado com sucesso!",
+            f"Backup [{idx_display}] ({selected['theme_info']} - {selected['date_str']}) restored successfully!",
         )
     except Exception as exc:
-        return False, f"Erro ao restaurar backup: {exc}"
+        return False, f"Error restoring backup: {exc}"
 
 
 def export_preset(dest_path: Path | None = None, paths: dict[str, Path] | None = None) -> tuple[str, Path | None]:
@@ -893,14 +893,14 @@ def import_preset(preset_data: dict[str, Any] | str | Path, paths: dict[str, Pat
         elif isinstance(preset_data, dict):
             data = preset_data
         else:
-            return False, "Formato de preset inválido."
+            return False, "Invalid preset format."
     except Exception as exc:
-        return False, f"Não foi possível ler o preset JSON: {exc}"
+        return False, f"Failed to parse preset JSON: {exc}"
 
     tid = int(data.get("theme_id", 10))
     theme = get_theme_by_id(tid)
     if not theme:
-        return False, f"Tema #{tid} não existe no catálogo (1–60)."
+        return False, f"Theme #{tid} does not exist in catalog (1–60)."
 
     tlen = int(data.get("tab_title_len", 15))
     tlen = max(4, min(60, tlen))
@@ -917,5 +917,5 @@ def import_preset(preset_data: dict[str, Any] | str | Path, paths: dict[str, Pat
         paths=paths,
     )
     if not ok:
-        return False, f"O WezTerm rejeitou o preset: {err}"
-    return True, f"Preset aplicado com sucesso (Tema #{theme['id']:02d} {theme['name']})!"
+        return False, f"WezTerm rejected the preset: {err}"
+    return True, f"Preset applied successfully (Theme #{theme['id']:02d} {theme['name']})!"
