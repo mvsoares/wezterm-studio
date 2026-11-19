@@ -1,6 +1,13 @@
 # ✦ WezTerm Studio (`wezterm-theme`)
 
+[![CI](https://github.com/mvsoares/wezterm-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/mvsoares/wezterm-studio/actions/workflows/ci.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-0ea5e9)](#cross-platform-compatibility)
+[![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
+
 **WezTerm Studio** (`wezterm-theme`) is a unified, cross-platform customizer (**Linux, macOS, and Windows**) for **WezTerm** that hot-reloads tab bar themes, custom symbols, monospace/Nerd Fonts, color schemes, and window appearance in real time — with **zero external dependencies** (100% Python `>= 3.10` standard library).
+
+![WezTerm After Customizing with WezTerm Studio](docs/images/customized-terminals.png)
 
 It combines a fast **CLI**, an **ANSI TrueColor TUI**, and a **Local Web Studio** into a single package:
 
@@ -9,6 +16,30 @@ It combines a fast **CLI**, an **ANSI TrueColor TUI**, and a **Local Web Studio*
 - 🔤 **Live Font & Nerd Font Picker** — automatically discovers installed monospace and Nerd Fonts via `wezterm ls-fonts`, FontConfig, CoreText, and DirectWrite, with independent family, weight, and size controls for **Editor** and **Tab Bar**.
 - 🖥 **1,100+ Built-in Color Schemes & Window Controls** — search and apply WezTerm color schemes, window opacity, inner padding, decorations, cursor style, line height, and scrollback.
 - 💾 **Instant Backups & Portable JSON Presets** — automatic pre-validation via `wezterm` with rollback protection, timestamped backups, and OS-agnostic JSON presets shareable across Linux, macOS, and Windows.
+
+---
+
+## ✨ Visual Tour
+
+### 1. Tab Bar Styles & Hue-Adaptive Symbols
+Every theme enforces WCAG contrast and uniform character width so tabs never jump as directory names or active processes change. You can keep each theme's native style or layer custom CIE LCh hue-matched symbols on top:
+
+![12 Sample Styles from the 60-Theme Tab Bar Catalog](docs/images/tab-styles-showcase.png)
+
+### 2. Browser Web Studio — Tab Themes & Symbol Builder (`wezterm-theme web`)
+Interactive live preview of all 60 4-tab bar themes, fixed-width slider, category filters, and 1-click Symbol Builder that hot-reloads WezTerm immediately:
+
+![WezTerm Studio Browser UI — Tab Bar Themes & Symbol Builder](docs/images/web-studio-tabs.png)
+
+### 3. Browser Web Studio — Live Font & Nerd Font Picker
+Renders your actual installed system fonts with programming ligature specimens (`!= === >= =>`), Nerd Font glyph strips, and separate **Apply to Editor** / **Apply to Tabs** actions:
+
+![WezTerm Studio Browser UI — Fonts & Nerd Fonts](docs/images/web-studio-fonts.png)
+
+### 4. Interactive ANSI TrueColor Terminal Picker (`wezterm-theme`)
+Prefer staying in the terminal or working over SSH? Run `wezterm-theme` with no arguments for the full TrueColor TUI:
+
+![WezTerm Studio Interactive ANSI TrueColor TUI](docs/images/tui-preview.png)
 
 ---
 
