@@ -634,72 +634,151 @@
       </div>
 
       <nav class="nav-tabs">
-        <button class="nav-tab active" data-view="themes">🎨 Tab Bar Themes (60)</button>
-        <button class="nav-tab" data-view="fonts">🔤 Fonts & Typography</button>
-        <button class="nav-tab" data-view="appearance">🖥 Colors, Window & Cursor</button>
-        <button class="nav-tab" data-view="backups">💾 Backups & Presets</button>
+        <button class="nav-tab active" id="navThemesTab" data-view="themes">🎨 Tab Bar Themes (62)</button>
+        <button class="nav-tab" id="navSymbolsTab" data-view="symbols">✦ Tab Symbols [s]</button>
+        <button class="nav-tab" data-view="fonts">🔤 Fonts &amp; Sizes [f]</button>
+        <button class="nav-tab" data-view="appearance">🖥 Colors, Tabs, Window &amp; $EDITOR [cs]</button>
+        <button class="nav-tab" data-view="backups">💾 Backups &amp; Presets [b/u]</button>
       </nav>
     </div>
   </header>
 
   <main class="container">
-    <!-- ── TAB 1: 60 TAB THEMES & SYMBOLS ── -->
+    <!-- ── TAB 1: 62 TAB THEMES ── -->
     <section class="view-pane active" id="view-themes">
       <div class="toolbar">
         <input class="search-input" id="themeSearch" type="search" placeholder="Search themes by name, category, style, or #ID (e.g. neon, powerline, catppuccin, #08)...">
-        <label style="display:flex;align-items:center;gap:8px;font-size:0.83rem;color:var(--sub);">
-          Fixed width (<strong id="lenLabel" style="color:var(--text)">15</strong>c):
-          <input id="lenSlider" type="range" min="4" max="32" value="15">
+        <label style="display:flex;align-items:center;gap:8px;font-size:0.83rem;color:var(--sub);" title="Fixed tab title character width (4-60 chars)">
+          Tab width (<strong id="lenLabel" style="color:var(--text)">15</strong>c):
+          <input id="lenSlider" type="range" min="4" max="60" value="15">
+          <input id="lenNumberInput" type="number" min="4" max="60" value="15" style="width:56px;background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:0.8rem;">
         </label>
-        <button class="btn btn-purple" id="toggleSymBtn">✦ Tab Symbols</button>
+        <button class="btn btn-purple" id="toggleSymBtn">✦ Edit Symbols [s]</button>
         <button class="btn" id="randomThemeBtn">🎲 Random</button>
         <span id="themeCount" style="color:var(--sub);font-size:0.82rem;"></span>
-      </div>
-
-      <!-- Collapsible Symbol Customizer -->
-      <div class="sym-drawer" id="symDrawer">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
-          <div>
-            <strong>✦ Tab Bar Symbol Builder</strong>
-            <span id="symStateLabel" style="margin-left:8px;font-size:0.78rem;color:var(--sub);"></span>
-          </div>
-          <div style="display:flex;gap:8px;">
-            <button class="btn" id="resetSymBtn">↺ Use Theme Defaults</button>
-            <button class="btn btn-primary" id="applySymBtn">✔ Apply Symbols to WezTerm</button>
-          </div>
-        </div>
-        <div class="sym-preview-box" id="symPreviewBox"></div>
-        <div class="sym-groups" id="symGroupsBox"></div>
       </div>
 
       <div class="pills-row" id="catPills"></div>
       <div class="themes-grid" id="themesGrid"></div>
     </section>
 
-    <!-- ── TAB 2: FONTS & TYPOGRAPHY ── -->
+    <!-- ── TAB 2: TAB SYMBOLS BUILDER [s] ── -->
+    <section class="view-pane" id="view-symbols">
+      <div class="s-card" style="margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+          <div>
+            <h3 style="border:none;padding:0;margin-bottom:4px;">✦ Tab Bar Symbol Builder <span id="symStateLabel" style="margin-left:8px;font-size:0.8rem;color:var(--sub);font-weight:500;"></span></h3>
+            <div id="symThemeSub" style="font-size:0.82rem;color:var(--sub);"></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <label style="display:flex;align-items:center;gap:6px;font-size:0.82rem;color:var(--sub);">
+              Tab width:
+              <input id="symLenSlider" type="range" min="4" max="60" value="15">
+              <strong id="symLenLabel" style="color:var(--text);min-width:28px;">15c</strong>
+            </label>
+            <button class="btn" id="resetSymBtn">↺ Use Theme Defaults</button>
+            <button class="btn btn-primary" id="applySymBtn">✔ Apply Symbols to WezTerm</button>
+          </div>
+        </div>
+        <div id="symNoSupportNote" style="display:none;background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.4);color:var(--amber);padding:8px 12px;border-radius:8px;font-size:0.81rem;">
+          This theme style uses fixed structural glyphs instead of custom symbols; your symbol choices are saved and apply automatically on compatible themes.
+        </div>
+        <div class="sym-preview-box" id="symPreviewBox" style="margin-bottom:0;"></div>
+        <div id="symBreakdown" style="font-family:ui-monospace,monospace;font-size:0.8rem;color:var(--sub);"></div>
+        <div class="sym-groups" id="symGroupsBox" style="margin-bottom:0;"></div>
+      </div>
+    </section>
+
+    <!-- ── TAB 3: FONTS & SIZES [f] ── -->
     <section class="view-pane" id="view-fonts">
+      <div class="settings-grid" style="margin-bottom:14px;">
+        <div class="s-card">
+          <h3>📝 Editor Font &amp; Sizing</h3>
+          <div class="s-row">
+            <label>Active Editor family</label>
+            <strong id="paneEditorFont" style="color:var(--accent);">Default</strong>
+          </div>
+          <div class="s-row">
+            <label for="paneEditorSize">Editor font size (pt)</label>
+            <input id="paneEditorSize" type="number" min="6" max="36" step="0.5" value="13">
+          </div>
+          <div class="s-row">
+            <label for="paneEditorWeight">Editor font weight</label>
+            <select id="paneEditorWeight">
+              <option>Thin</option><option>Light</option><option selected>Regular</option>
+              <option>Medium</option><option>DemiBold</option><option>Bold</option>
+            </select>
+          </div>
+          <div class="s-row">
+            <label for="lineHeightInput">Line height (0.8–2.0)</label>
+            <input id="lineHeightInput" type="number" min="0.8" max="2.0" step="0.05" value="1.0">
+          </div>
+          <div class="s-row">
+            <label for="ligaturesPaneCheck">Programming ligatures (<code>calt</code> / <code>liga</code>)</label>
+            <input id="ligaturesPaneCheck" type="checkbox" checked>
+          </div>
+        </div>
+
+        <div class="s-card">
+          <h3>🗂 Tab Bar Font &amp; Sizing</h3>
+          <div class="s-row">
+            <label>Active Tab Bar family</label>
+            <strong id="paneTabFont" style="color:var(--purple);">Default</strong>
+          </div>
+          <div class="s-row">
+            <label for="paneTabSize">Tab bar font size (pt)</label>
+            <input id="paneTabSize" type="number" min="6" max="30" step="0.5" value="11">
+          </div>
+          <div class="s-row">
+            <label for="paneTabWeight">Tab bar font weight</label>
+            <select id="paneTabWeight">
+              <option>Regular</option><option selected>Medium</option><option>DemiBold</option><option>Bold</option>
+            </select>
+          </div>
+          <div class="s-row">
+            <label for="paneTabLen">Tab title width (4–60 chars)</label>
+            <input id="paneTabLen" type="number" min="4" max="60" step="1" value="15">
+          </div>
+          <div class="s-row">
+            <label for="paneTabMaxW" title="Maximum total tab width in columns (0 = automatic)">Max tab width (cols, 0 = auto)</label>
+            <input id="paneTabMaxW" type="number" min="0" max="120" step="1" value="0" placeholder="Auto">
+          </div>
+        </div>
+      </div>
+
       <div class="toolbar">
         <input class="search-input" id="fontSearch" type="search" placeholder="Search fonts by family or designer (e.g. Victor, JetBrains, Iosevka, Cascadia, Meslo)...">
         <button class="pill-btn active" id="filterAllFonts">All Fonts</button>
         <button class="pill-btn" id="filterNerdFonts">Nerd Fonts Only</button>
+        <label class="pill-btn" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;" title="Toggle HarfBuzz programming ligatures (calt/clig/liga)">
+          <input id="ligaturesCheck" type="checkbox" checked> Ligatures
+        </label>
         <button class="btn" id="refreshFontsBtn">↻ Reload System Fonts</button>
         <span id="fontCount" style="color:var(--sub);font-size:0.82rem;"></span>
       </div>
       <div class="fonts-grid" id="fontsGrid"></div>
     </section>
 
-    <!-- ── TAB 3: COLORS, WINDOW & CURSOR ── -->
+    <!-- ── TAB 4: COLORS, TABS, WINDOW & $EDITOR [cs] ── -->
     <section class="view-pane" id="view-appearance">
       <div class="settings-grid">
         <div class="s-card">
           <h3>🎨 Terminal Color Scheme</h3>
           <div class="s-row">
-            <label for="schemeInput">Active scheme</label>
+            <label for="schemeInput">Active (Dark) scheme</label>
             <div style="display:flex;gap:6px;flex:1;justify-content:flex-end;">
               <input id="schemeInput" list="schemesDatalist" type="text" placeholder="e.g. Monokai Vivid, Catppuccin Mocha...">
               <datalist id="schemesDatalist"></datalist>
               <button class="btn btn-primary" id="applySchemeBtn">Apply</button>
               <button class="btn" id="resetSchemeBtn" title="Reset to WezTerm default">Default</button>
+            </div>
+          </div>
+          <div class="s-row">
+            <label for="lightSchemeInput" title="Automatically switched via wezterm.gui.get_appearance() when your OS is in Light mode">Light-mode scheme</label>
+            <div style="display:flex;gap:6px;flex:1;justify-content:flex-end;">
+              <input id="lightSchemeInput" list="schemesDatalist" type="text" placeholder="Optional (e.g. Catppuccin Latte)...">
+              <button class="btn btn-primary" id="applyLightSchemeBtn">Apply</button>
+              <button class="btn" id="resetLightSchemeBtn" title="Disable Light-mode override">Clear</button>
             </div>
           </div>
           <div>
@@ -709,10 +788,50 @@
         </div>
 
         <div class="s-card">
-          <h3>🪟 Window & Opacity</h3>
+          <h3>🗂 Tab Bar Sizing &amp; Status Bar</h3>
+          <div class="s-row">
+            <label for="cardTabLen">Tab title width (4–60 chars)</label>
+            <input id="cardTabLen" type="number" min="4" max="60" step="1" value="15">
+          </div>
+          <div class="s-row">
+            <label for="tabMaxWidthInput" title="config.tab_max_width in columns (set 0 for automatic)">Max tab width (cols, 0 = auto)</label>
+            <input id="tabMaxWidthInput" type="number" min="0" max="120" step="1" value="0" placeholder="Auto">
+          </div>
+          <div class="s-row">
+            <label for="cardTabFontSize">Tab bar font size (pt)</label>
+            <input id="cardTabFontSize" type="number" min="6" max="30" step="0.5" value="11">
+          </div>
+          <div class="s-row">
+            <label for="fancyTabSelect" title="Override theme's use_fancy_tab_bar">Tab bar style</label>
+            <select id="fancyTabSelect">
+              <option value="auto">Theme Default (Auto)</option>
+              <option value="true">Fancy Pill Frame</option>
+              <option value="false">Retro Flat Cells</option>
+            </select>
+          </div>
+          <div class="s-row">
+            <label for="tabBottomCheck">Place tab bar at bottom</label>
+            <input id="tabBottomCheck" type="checkbox" checked>
+          </div>
+          <div class="s-row">
+            <label for="hideOneTabCheck">Hide tab bar when only one tab is open</label>
+            <input id="hideOneTabCheck" type="checkbox">
+          </div>
+          <div class="s-row">
+            <label for="statusBarCheck" title="Theme-tinted right status bar showing leader/mode pill, workspace/mux domain, cached git branch, battery, and clock">Enable Studio right-status bar (mode · git · mux · clock)</label>
+            <input id="statusBarCheck" type="checkbox">
+          </div>
+        </div>
+
+        <div class="s-card">
+          <h3>🪟 Window, Splits &amp; Backdrop</h3>
           <div class="s-row">
             <label for="opacityRange">Background opacity (<span id="opacityVal">1.00</span>)</label>
             <input id="opacityRange" type="range" min="0.2" max="1.0" step="0.02" value="1.0">
+          </div>
+          <div class="s-row">
+            <label for="dimInactiveRange" title="Dims unfocused split panes via config.inactive_pane_hsb">Inactive split brightness (<span id="dimInactiveVal">1.00</span>)</label>
+            <input id="dimInactiveRange" type="range" min="0.4" max="1.0" step="0.02" value="1.0">
           </div>
           <div class="s-row">
             <label for="paddingInput">Window padding (px)</label>
@@ -728,13 +847,39 @@
             </select>
           </div>
           <div class="s-row">
-            <label for="lineHeightInput">Line height</label>
-            <input id="lineHeightInput" type="number" min="0.8" max="2.0" step="0.05" value="1.0">
+            <label for="gradientCheck" title="GPU-rendered Oklab radial background gradient derived from your active scheme">Subtle Oklab radial gradient</label>
+            <input id="gradientCheck" type="checkbox">
+          </div>
+          <div class="s-row">
+            <label for="accentBorderCheck" title="Draws a crisp 1px window_frame border tinted with the active tab theme accent">1px theme-accented frame border</label>
+            <input id="accentBorderCheck" type="checkbox">
           </div>
         </div>
 
         <div class="s-card">
-          <h3>▏Cursor, Tab Bar & Performance</h3>
+          <h3>⚡ $EDITOR, Hyperlinks &amp; Terminal</h3>
+          <div class="s-row">
+            <label for="editorCmdInput" title="Editor binary used when clicking file:line stack traces or opening command output"><code>$EDITOR</code> command</label>
+            <div style="display:flex;gap:6px;flex:1;justify-content:flex-end;">
+              <input id="editorCmdInput" type="text" placeholder="Default ($EDITOR env / nvim)" style="min-width:150px;">
+              <button class="btn btn-primary" id="applyEditorBtn">Apply</button>
+              <button class="btn" id="resetEditorBtn" title="Use $EDITOR environment variable">Env</button>
+            </div>
+          </div>
+          <div>
+            <div style="font-size:0.76rem;color:var(--sub);margin-bottom:6px;">Quick <code>$EDITOR</code> presets:</div>
+            <div class="chips-wrap" id="quickEditors">
+              <button class="scheme-chip ed-chip" data-ed="nvim">nvim</button>
+              <button class="scheme-chip ed-chip" data-ed="vim">vim</button>
+              <button class="scheme-chip ed-chip" data-ed="hx">hx (Helix)</button>
+              <button class="scheme-chip ed-chip" data-ed="code">code (VS Code)</button>
+              <button class="scheme-chip ed-chip" data-ed="zed">zed</button>
+            </div>
+          </div>
+          <div class="s-row">
+            <label for="openInEditorCheck" title="Hyperlinks file.py:42 stack traces to open directly at line 42 in $EDITOR, plus owner/repo#123 GitHub links">Click <code>file:line</code> stack traces → open in <code>$EDITOR</code></label>
+            <input id="openInEditorCheck" type="checkbox">
+          </div>
           <div class="s-row">
             <label for="cursorStyleSelect">Cursor style</label>
             <select id="cursorStyleSelect">
@@ -753,14 +898,6 @@
           <div class="s-row">
             <label for="scrollbackInput">Scrollback lines</label>
             <input id="scrollbackInput" type="number" min="500" max="200000" step="500" value="5000">
-          </div>
-          <div class="s-row">
-            <label for="tabBottomCheck">Place tab bar at bottom</label>
-            <input id="tabBottomCheck" type="checkbox" checked>
-          </div>
-          <div class="s-row">
-            <label for="hideOneTabCheck">Hide tab bar when only one tab is open</label>
-            <input id="hideOneTabCheck" type="checkbox">
           </div>
           <div class="s-row">
             <label for="bellCheck">Audible bell</label>
@@ -927,21 +1064,32 @@
     function renderBarHTML(rawTheme, len, symOverride) {
       const t = withSymbols(rawTheme, symOverride);
       const p = t.palette;
-      const pill = !!t.use_fancy && t.style !== "powerline";
+      const appFancy = STATE && STATE.appearance ? STATE.appearance.use_fancy_tab_bar : null;
+      const effFancy = appFancy != null ? !!appFancy : !!t.use_fancy;
+      const pill = effFancy && t.style !== "powerline" && t.style !== "adaptive_gradient";
       const names = ["setup", "workspace", "backend", "cloud-run"].map(n => fmtFixed(n, len));
       const s = t.style;
 
-      if (s === "powerline") {
+      if (s === "powerline" || s === "adaptive_gradient") {
         const sep = t.sep_char || "\ue0b0";
         let out = "";
         for (let i = 0; i < 4; i++) {
-          const c = p[i];
-          const nextBg = i < 3 ? p[i + 1].bg : t.bg_bar;
+          const c = p[i % p.length];
+          const nextBg = i < 3 ? p[(i + 1) % p.length].bg : t.bg_bar;
           const pre = i === 0 ? `${c.active_sym || "⚡ "}1` : `${i + 1}${c.inactive_sym || ""}`;
           out += seg(c.bg, c.fg, ` ${pre} ${names[i]} `, i === 0, i === 0, false);
           out += seg(nextBg, c.bg, sep, false, false, false);
         }
         return out;
+      }
+      if (s === "workspace_color") {
+        const c = p[projectSlot("main", p.length)];
+        const mBg = t.muted_bg || "#1b1f2b";
+        const mFg = t.muted_fg || "#a3adc2";
+        return [0,1,2,3].map(i => i === 0
+          ? seg(c.bg, c.fg, ` ${c.active_sym || ""}[main] 1 ${names[0]} ✕ `, true, false, pill)
+          : seg(mBg, c.bg, ` ${i + 1}`, true, false, false) + seg(mBg, mFg, `${c.inactive_sym || ""} ${names[i]} ✕ `, false, false, pill)
+        ).join("");
       }
       if (s === "crt_amber") {
         return [0,1,2,3].map(i => seg(p[i].bg, p[i].fg, ` [${i===0?"*":"-"} 0${i+1}:${names[i].toUpperCase()} ${i===0?"*":"-"}] `, i===0, i===0, pill)).join("");
@@ -1005,48 +1153,108 @@
       document.getElementById("hdrTheme").textContent = `#${String(activeTheme.id).padStart(2, "0")} ${activeTheme.name}`;
       document.getElementById("hdrEditorFont").textContent = shortFont(app.font_family);
       document.getElementById("hdrTabFont").textContent = shortFont(app.tab_font_family);
+      document.getElementById("paneEditorFont").textContent = app.font_family || "WezTerm Default";
+      document.getElementById("paneTabFont").textContent = app.tab_font_family || "WezTerm Default";
 
-      if (app.font_weight) document.getElementById("hdrEditorWeight").value = app.font_weight;
-      if (app.font_size != null) document.getElementById("hdrEditorSize").value = app.font_size;
-      if (app.tab_font_weight) document.getElementById("hdrTabWeight").value = app.tab_font_weight;
-      if (app.tab_font_size != null) document.getElementById("hdrTabSize").value = app.tab_font_size;
+      const edWeight = app.font_weight || "Regular";
+      const edSize = app.font_size != null ? app.font_size : 13;
+      const tbWeight = app.tab_font_weight || "Medium";
+      const tbSize = app.tab_font_size != null ? app.tab_font_size : 11;
+
+      document.getElementById("hdrEditorWeight").value = edWeight;
+      document.getElementById("paneEditorWeight").value = edWeight;
+      document.getElementById("hdrEditorSize").value = edSize;
+      document.getElementById("paneEditorSize").value = edSize;
+
+      document.getElementById("hdrTabWeight").value = tbWeight;
+      document.getElementById("paneTabWeight").value = tbWeight;
+      document.getElementById("hdrTabSize").value = tbSize;
+      document.getElementById("paneTabSize").value = tbSize;
+      document.getElementById("cardTabFontSize").value = tbSize;
 
       if (app.tab_font_family) {
         document.documentElement.style.setProperty("--tab-preview-font", `"${app.tab_font_family}", "JetBrains Mono", monospace`);
       }
 
-      document.getElementById("lenSlider").value = Math.min(32, Math.max(4, STATE.tab_title_len || 15));
-      document.getElementById("lenLabel").textContent = STATE.tab_title_len || 15;
+      const curLen = Math.min(60, Math.max(4, STATE.tab_title_len || 15));
+      document.getElementById("lenSlider").value = curLen;
+      document.getElementById("lenNumberInput").value = curLen;
+      document.getElementById("lenLabel").textContent = curLen;
+      document.getElementById("symLenSlider").value = curLen;
+      document.getElementById("symLenLabel").textContent = curLen + "c";
+      document.getElementById("paneTabLen").value = curLen;
+      document.getElementById("cardTabLen").value = curLen;
 
-      // Appearance controls
+      const maxW = app.tab_max_width != null ? app.tab_max_width : 0;
+      document.getElementById("paneTabMaxW").value = maxW;
+      document.getElementById("tabMaxWidthInput").value = maxW;
+
+      document.getElementById("fancyTabSelect").value = app.use_fancy_tab_bar == null ? "auto" : String(!!app.use_fancy_tab_bar);
+
+      // Appearance & $EDITOR controls
+      const ligOn = app.font_ligatures !== false;
+      document.getElementById("ligaturesCheck").checked = ligOn;
+      document.getElementById("ligaturesPaneCheck").checked = ligOn;
+
       document.getElementById("schemeInput").value = app.color_scheme || "";
-      document.querySelectorAll(".scheme-chip").forEach(ch => {
+      document.getElementById("lightSchemeInput").value = app.color_scheme_light || "";
+      document.querySelectorAll(".scheme-chip:not(.ed-chip)").forEach(ch => {
         ch.classList.toggle("active", ch.dataset.scheme === (app.color_scheme || ""));
       });
+
+      document.getElementById("editorCmdInput").value = app.editor_cmd || "";
+      document.querySelectorAll(".ed-chip").forEach(ch => {
+        ch.classList.toggle("active", ch.dataset.ed === (app.editor_cmd || ""));
+      });
+      document.getElementById("openInEditorCheck").checked = app.open_in_editor !== false;
+
       if (app.window_opacity != null) {
         document.getElementById("opacityRange").value = app.window_opacity;
         document.getElementById("opacityVal").textContent = Number(app.window_opacity).toFixed(2);
       }
+      const dimBr = app.inactive_pane_brightness != null ? Number(app.inactive_pane_brightness) : 1.0;
+      document.getElementById("dimInactiveRange").value = dimBr;
+      document.getElementById("dimInactiveVal").textContent = dimBr.toFixed(2);
       if (app.window_padding != null && typeof app.window_padding === "number") {
         document.getElementById("paddingInput").value = app.window_padding;
       }
       if (app.window_decorations) document.getElementById("decorationsSelect").value = app.window_decorations;
       if (app.line_height != null) document.getElementById("lineHeightInput").value = app.line_height;
+      document.getElementById("gradientCheck").checked = !!app.background_gradient;
+      document.getElementById("accentBorderCheck").checked = !!app.accent_border;
       if (app.cursor_style) document.getElementById("cursorStyleSelect").value = app.cursor_style;
       if (app.cursor_blink_rate != null) document.getElementById("cursorBlinkInput").value = app.cursor_blink_rate;
       if (app.scrollback_lines != null) document.getElementById("scrollbackInput").value = app.scrollback_lines;
       document.getElementById("tabBottomCheck").checked = app.tab_bar_at_bottom !== false;
       document.getElementById("hideOneTabCheck").checked = !!app.hide_tab_bar_if_only_one_tab;
+      document.getElementById("statusBarCheck").checked = !!app.status_bar;
       document.getElementById("bellCheck").checked = app.audible_bell === "SystemBeep";
     }
 
     function renderSymbolDrawer() {
       const curTheme = BOOT.themes.find(t => t.id === STATE.theme_id) || BOOT.themes[0];
       const len = parseInt(document.getElementById("lenSlider").value, 10) || 15;
-      document.getElementById("symStateLabel").textContent = draftSymbols ? "(Custom)" : "(Theme defaults)";
+      const savedJson = JSON.stringify(STATE.symbols || null);
+      const draftJson = JSON.stringify(draftSymbols || null);
+      const unapplied = savedJson !== draftJson ? " · Unapplied draft (click Apply)" : "";
+      document.getElementById("symStateLabel").textContent = (draftSymbols ? "(Custom)" : "(Theme defaults)") + unapplied;
+      document.getElementById("symThemeSub").textContent = `Active theme: #${String(curTheme.id).padStart(2, "0")} ${curTheme.name} [${curTheme.style} · ${len}c]`;
+
+      const noSupport = (BOOT.no_symbol_styles || []).includes(curTheme.style || "pills");
+      document.getElementById("symNoSupportNote").style.display = noSupport ? "block" : "none";
+
       const previewEl = document.getElementById("symPreviewBox");
       previewEl.style.background = curTheme.bg_bar;
       previewEl.innerHTML = `<div class="bar-wrap" style="background:${curTheme.bg_bar};border:none;padding:2px;">${renderBarHTML(curTheme, len, draftSymbols)}</div>`;
+
+      const bdEl = document.getElementById("symBreakdown");
+      if (draftSymbols && curTheme.palette && curTheme.palette.length >= 2) {
+        const [actSym] = composeSymbolsJS(draftSymbols, 0, curTheme.palette[0].bg);
+        const [, inactSym] = composeSymbolsJS(draftSymbols, 1, curTheme.palette[1].bg);
+        bdEl.textContent = `Active tab: ' ${actSym}1 setup '    ·    Inactive tab: ' 2${inactSym} workspace '`;
+      } else {
+        bdEl.textContent = "Using theme's built-in active and inactive symbols.";
+      }
 
       const groupsEl = document.getElementById("symGroupsBox");
       groupsEl.innerHTML = BOOT.symbol_groups.map(g => {
@@ -1151,6 +1359,7 @@
       document.getElementById("fontCount").textContent = `${list.length} of ${FONTS.length} fonts`;
       const iconsSample = "⚡ \ue0b0 \ue0b4 \udb80\udea2 \ue73c \udb80\udd69 \uf489 \udb80\udf0e \udb81\udc8b ★ ❶";
 
+      const ligStyle = app.font_ligatures === false ? "font-variant-ligatures:none;font-feature-settings:'liga' 0,'calt' 0,'clig' 0;" : "";
       const grid = document.getElementById("fontsGrid");
       grid.innerHTML = list.map(f => {
         const isEd = app.font_family === f.family || (app.font_family && app.font_family.startsWith(f.family));
@@ -1166,7 +1375,7 @@
             </div>
           </div>
           <div class="fc-sample" style="font-family:'${esc(f.family)}',monospace">${esc(f.text)}</div>
-          <div class="fc-code" style="font-family:'${esc(f.family)}',monospace">const greet = (n) =&gt; \`Hello, \${n}!\`; // != === &gt;= |&gt; 0Oo1lI</div>
+          <div class="fc-code" style="font-family:'${esc(f.family)}',monospace;${ligStyle}">const greet = (n) =&gt; \`Hello, \${n}!\`; // != === &gt;= |&gt; 0Oo1lI</div>
           <div class="fc-icons" style="font-family:'${esc(f.family)}',monospace">${iconsSample}</div>
           <div class="fc-actions">
             <button class="btn apply-ed-font" data-fam="${esc(f.family)}">Apply to Editor</button>
@@ -1244,15 +1453,16 @@
       });
     }
 
+    function switchView(viewName) {
+      document.querySelectorAll(".nav-tab").forEach(t => t.classList.toggle("active", t.dataset.view === viewName));
+      document.querySelectorAll(".view-pane").forEach(p => p.classList.toggle("active", p.id === "view-" + viewName));
+      if (viewName === "backups") loadBackups();
+      if (viewName === "symbols") renderSymbolDrawer();
+    }
+
     // ── Event Wiring ──
     document.querySelectorAll(".nav-tab").forEach(tab => {
-      tab.addEventListener("click", () => {
-        document.querySelectorAll(".nav-tab").forEach(t => t.classList.remove("active"));
-        document.querySelectorAll(".view-pane").forEach(p => p.classList.remove("active"));
-        tab.classList.add("active");
-        document.getElementById("view-" + tab.dataset.view).classList.add("active");
-        if (tab.dataset.view === "backups") loadBackups();
-      });
+      tab.addEventListener("click", () => switchView(tab.dataset.view));
     });
 
     document.getElementById("initBtn").addEventListener("click", async () => {
@@ -1267,27 +1477,40 @@
     });
 
     document.getElementById("themeSearch").addEventListener("input", renderThemesGrid);
-    document.getElementById("lenSlider").addEventListener("input", e => {
-      document.getElementById("lenLabel").textContent = e.target.value;
+
+    async function applyTabTitleLen(rawVal, commit) {
+      const len = Math.max(4, Math.min(60, parseInt(rawVal, 10) || 15));
+      document.getElementById("lenSlider").value = len;
+      document.getElementById("lenNumberInput").value = len;
+      document.getElementById("lenLabel").textContent = len;
+      document.getElementById("symLenSlider").value = len;
+      document.getElementById("symLenLabel").textContent = len + "c";
+      document.getElementById("paneTabLen").value = len;
+      document.getElementById("cardTabLen").value = len;
       renderThemesGrid();
       renderSymbolDrawer();
-    });
-    document.getElementById("lenSlider").addEventListener("change", async e => {
-      const len = parseInt(e.target.value, 10);
-      const res = await apiPost("/api/apply-tab-theme", {
-        theme_id: STATE.theme_id,
-        tab_title_len: len,
-        symbols: "keep"
-      });
-      if (res.ok) {
-        STATE = res.state;
-        setStatus(`✔ Fixed tab width set to ${len} chars`, "ok");
+      if (commit) {
+        const res = await apiPost("/api/apply-tab-theme", {
+          theme_id: STATE.theme_id,
+          tab_title_len: len,
+          symbols: "keep"
+        });
+        if (res.ok) {
+          STATE = res.state;
+          setStatus(`✔ Tab title width set to ${len} chars`, "ok");
+        }
       }
-    });
+    }
 
-    document.getElementById("toggleSymBtn").addEventListener("click", () => {
-      document.getElementById("symDrawer").classList.toggle("open");
-    });
+    document.getElementById("lenSlider").addEventListener("input", e => applyTabTitleLen(e.target.value, false));
+    document.getElementById("lenSlider").addEventListener("change", e => applyTabTitleLen(e.target.value, true));
+    document.getElementById("lenNumberInput").addEventListener("change", e => applyTabTitleLen(e.target.value, true));
+    document.getElementById("symLenSlider").addEventListener("input", e => applyTabTitleLen(e.target.value, false));
+    document.getElementById("symLenSlider").addEventListener("change", e => applyTabTitleLen(e.target.value, true));
+    document.getElementById("paneTabLen").addEventListener("change", e => applyTabTitleLen(e.target.value, true));
+    document.getElementById("cardTabLen").addEventListener("change", e => applyTabTitleLen(e.target.value, true));
+
+    document.getElementById("toggleSymBtn").addEventListener("click", () => switchView("symbols"));
 
     document.getElementById("resetSymBtn").addEventListener("click", () => {
       draftSymbols = null;
@@ -1336,11 +1559,16 @@
     document.getElementById("tbDec").addEventListener("click", () => stepSize("hdrTabSize", -1, "tab_font_size", "Tab size"));
     document.getElementById("tbInc").addEventListener("click", () => stepSize("hdrTabSize", +1, "tab_font_size", "Tab size"));
     document.getElementById("hdrEditorSize").addEventListener("change", e => updateAppearance({ font_size: parseFloat(e.target.value) || 13 }, "Editor font size updated"));
+    document.getElementById("paneEditorSize").addEventListener("change", e => updateAppearance({ font_size: parseFloat(e.target.value) || 13 }, `Editor font size → ${e.target.value}pt`));
     document.getElementById("hdrTabSize").addEventListener("change", e => updateAppearance({ tab_font_size: parseFloat(e.target.value) || 11 }, "Tab font size updated"));
+    document.getElementById("paneTabSize").addEventListener("change", e => updateAppearance({ tab_font_size: parseFloat(e.target.value) || 11 }, `Tab font size → ${e.target.value}pt`));
+    document.getElementById("cardTabFontSize").addEventListener("change", e => updateAppearance({ tab_font_size: parseFloat(e.target.value) || 11 }, `Tab font size → ${e.target.value}pt`));
     document.getElementById("hdrEditorWeight").addEventListener("change", e => updateAppearance({ font_weight: e.target.value }, `Editor weight → ${e.target.value}`));
+    document.getElementById("paneEditorWeight").addEventListener("change", e => updateAppearance({ font_weight: e.target.value }, `Editor weight → ${e.target.value}`));
     document.getElementById("hdrTabWeight").addEventListener("change", e => updateAppearance({ tab_font_weight: e.target.value }, `Tab weight → ${e.target.value}`));
+    document.getElementById("paneTabWeight").addEventListener("change", e => updateAppearance({ tab_font_weight: e.target.value }, `Tab weight → ${e.target.value}`));
 
-    // Fonts filter
+    // Fonts filter & ligatures
     document.getElementById("fontSearch").addEventListener("input", renderFontsGrid);
     document.getElementById("filterAllFonts").addEventListener("click", () => {
       onlyNerd = false;
@@ -1353,6 +1581,12 @@
       document.getElementById("filterNerdFonts").classList.add("active");
       document.getElementById("filterAllFonts").classList.remove("active");
       renderFontsGrid();
+    });
+    document.getElementById("ligaturesCheck").addEventListener("change", e => {
+      updateAppearance({ font_ligatures: e.target.checked }, `Programming ligatures → ${e.target.checked ? "On" : "Off"}`);
+    });
+    document.getElementById("ligaturesPaneCheck").addEventListener("change", e => {
+      updateAppearance({ font_ligatures: e.target.checked }, `Programming ligatures → ${e.target.checked ? "On" : "Off"}`);
     });
     document.getElementById("refreshFontsBtn").addEventListener("click", async () => {
       setStatus("Reloading system fonts...");
@@ -1368,11 +1602,43 @@
     document.getElementById("quickSchemes").innerHTML = QUICK_SCHEMES.map(
       s => `<button class="scheme-chip" data-scheme="${esc(s)}">${esc(s)}</button>`
     ).join("");
-    document.querySelectorAll(".scheme-chip").forEach(ch => {
+    document.querySelectorAll(".scheme-chip:not(.ed-chip)").forEach(ch => {
       ch.addEventListener("click", () => {
         document.getElementById("schemeInput").value = ch.dataset.scheme;
         updateAppearance({ color_scheme: ch.dataset.scheme }, `Color Scheme → ${ch.dataset.scheme}`);
       });
+    });
+
+    // Tab bar max width & fancy/retro style
+    function applyMaxWidth(rawVal) {
+      const mw = parseInt(rawVal, 10) || 0;
+      const clean = mw <= 0 ? 0 : Math.max(16, Math.min(120, mw));
+      updateAppearance({ tab_max_width: clean }, clean === 0 ? "Max tab width → Auto" : `Max tab width → ${clean} cols`);
+    }
+    document.getElementById("paneTabMaxW").addEventListener("change", e => applyMaxWidth(e.target.value));
+    document.getElementById("tabMaxWidthInput").addEventListener("change", e => applyMaxWidth(e.target.value));
+    document.getElementById("fancyTabSelect").addEventListener("change", e => {
+      const v = e.target.value === "auto" ? "auto" : (e.target.value === "true");
+      updateAppearance({ use_fancy_tab_bar: v }, `Tab bar style → ${e.target.options[e.target.selectedIndex].text}`);
+    });
+
+    // $EDITOR & stack-trace hyperlink events
+    document.querySelectorAll(".ed-chip").forEach(ch => {
+      ch.addEventListener("click", () => {
+        document.getElementById("editorCmdInput").value = ch.dataset.ed;
+        updateAppearance({ editor_cmd: ch.dataset.ed, open_in_editor: true }, `$EDITOR → ${ch.dataset.ed}`);
+      });
+    });
+    document.getElementById("applyEditorBtn").addEventListener("click", () => {
+      const ed = document.getElementById("editorCmdInput").value.trim();
+      updateAppearance({ editor_cmd: ed || "Default" }, ed ? `$EDITOR → ${ed}` : "$EDITOR → environment default");
+    });
+    document.getElementById("resetEditorBtn").addEventListener("click", () => {
+      document.getElementById("editorCmdInput").value = "";
+      updateAppearance({ editor_cmd: "Default" }, "$EDITOR → environment default");
+    });
+    document.getElementById("openInEditorCheck").addEventListener("change", e => {
+      updateAppearance({ open_in_editor: e.target.checked }, `Stack-trace click-to-$EDITOR → ${e.target.checked ? "On" : "Off"}`);
     });
     document.getElementById("applySchemeBtn").addEventListener("click", () => {
       const s = document.getElementById("schemeInput").value.trim();
@@ -1382,12 +1648,26 @@
       document.getElementById("schemeInput").value = "";
       updateAppearance({ color_scheme: "Default" }, "Color Scheme → Default");
     });
+    document.getElementById("applyLightSchemeBtn").addEventListener("click", () => {
+      const s = document.getElementById("lightSchemeInput").value.trim();
+      updateAppearance({ color_scheme_light: s || "Default" }, `Light-mode Scheme → ${s || "Off"}`);
+    });
+    document.getElementById("resetLightSchemeBtn").addEventListener("click", () => {
+      document.getElementById("lightSchemeInput").value = "";
+      updateAppearance({ color_scheme_light: "Default" }, "Light-mode Scheme cleared");
+    });
 
     document.getElementById("opacityRange").addEventListener("input", e => {
       document.getElementById("opacityVal").textContent = Number(e.target.value).toFixed(2);
     });
     document.getElementById("opacityRange").addEventListener("change", e => {
       updateAppearance({ window_opacity: parseFloat(e.target.value) }, `Opacity → ${Number(e.target.value).toFixed(2)}`);
+    });
+    document.getElementById("dimInactiveRange").addEventListener("input", e => {
+      document.getElementById("dimInactiveVal").textContent = Number(e.target.value).toFixed(2);
+    });
+    document.getElementById("dimInactiveRange").addEventListener("change", e => {
+      updateAppearance({ inactive_pane_brightness: parseFloat(e.target.value) }, `Inactive split brightness → ${Number(e.target.value).toFixed(2)}`);
     });
     document.getElementById("paddingInput").addEventListener("change", e => {
       updateAppearance({ window_padding: parseInt(e.target.value, 10) || 0 }, `Padding → ${e.target.value}px`);
@@ -1397,6 +1677,12 @@
     });
     document.getElementById("lineHeightInput").addEventListener("change", e => {
       updateAppearance({ line_height: parseFloat(e.target.value) || 1.0 }, `Line Height → ${e.target.value}`);
+    });
+    document.getElementById("gradientCheck").addEventListener("change", e => {
+      updateAppearance({ background_gradient: e.target.checked }, `Oklab radial gradient → ${e.target.checked ? "On" : "Off"}`);
+    });
+    document.getElementById("accentBorderCheck").addEventListener("change", e => {
+      updateAppearance({ accent_border: e.target.checked }, `1px accent frame border → ${e.target.checked ? "On" : "Off"}`);
     });
     document.getElementById("cursorStyleSelect").addEventListener("change", e => {
       updateAppearance({ cursor_style: e.target.value }, `Cursor → ${e.target.value}`);
@@ -1412,6 +1698,9 @@
     });
     document.getElementById("hideOneTabCheck").addEventListener("change", e => {
       updateAppearance({ hide_tab_bar_if_only_one_tab: e.target.checked }, `Hide single tab → ${e.target.checked ? "Yes" : "No"}`);
+    });
+    document.getElementById("statusBarCheck").addEventListener("change", e => {
+      updateAppearance({ status_bar: e.target.checked }, `Studio status bar → ${e.target.checked ? "On" : "Off"}`);
     });
     document.getElementById("bellCheck").addEventListener("change", e => {
       updateAppearance({ audible_bell: e.target.checked ? "SystemBeep" : "Disabled" }, "Audible bell updated");
@@ -1469,6 +1758,7 @@
       BOOT = await apiGet("/api/bootstrap");
       STATE = BOOT.state;
       draftSymbols = STATE.symbols || null;
+      document.getElementById("navThemesTab").textContent = `🎨 Tab Bar Themes (${BOOT.themes.length})`;
 
       // Build category pills
       const catEl = document.getElementById("catPills");

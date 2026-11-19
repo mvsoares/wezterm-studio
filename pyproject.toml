@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wezterm-theme"
-version = "1.0.0"
-description = "Cross-platform interactive Tab Bar Theme Picker (60 themes), Symbol Customizer, and Live Font & Appearance Studio for WezTerm."
+version = "1.2.0"
+description = "Cross-platform interactive Tab Bar Theme Picker (62 themes), Symbol Customizer, and Live Font & Appearance Studio for WezTerm."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

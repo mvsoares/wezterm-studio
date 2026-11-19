@@ -1,10 +1,10 @@
 """Interactive cross-platform ANSI TrueColor TUI for WezTerm Studio.
 
 Includes:
-- 60 Tab Bar Themes with live 4-tab previews & category navigation
+- 62 Tab Bar Themes with live 4-tab previews & category navigation
 - Symbol Customizer (`[s]`)
-- Interactive Font & Size Picker (`[f]`)
-- Built-in Color Scheme Picker (`[cs]`)
+- Interactive Font, Size & Ligature Picker (`[f]`)
+- Built-in Color Scheme & Window Appearance Picker (`[cs]`)
 - Backup & Restore (`[b]` / `[u]`)
 - 1-key Web Studio launcher (`[w]`)
 """
@@ -137,13 +137,24 @@ def render_4_tab_bar(theme: dict[str, Any], tab_title_len: int = 15, max_cols: i
     bg_bar = theme.get("bg_bar", "#15161c")
     gap = f"{ansi_bg(bg_bar)} " if theme.get("use_fancy", True) else ""
 
-    if style == "powerline":
+    if style in ("powerline", "adaptive_gradient"):
         sep = theme.get("sep_char", "")
         t0 = f"{ansi_bg(p0['bg'])}{ansi_fg(p0['fg'])}{BOLD} {p0.get('active_sym', '⚡ ')}1 {l0} {ansi_bg(p1['bg'])}{ansi_fg(p0['bg'])}{sep}"
         t1 = f"{ansi_bg(p1['bg'])}{ansi_fg(p1['fg'])} 2{p1.get('inactive_sym', '')} {l1} {ansi_bg(p2['bg'])}{ansi_fg(p1['bg'])}{sep}"
         t2 = f"{ansi_bg(p2['bg'])}{ansi_fg(p2['fg'])} 3{p2.get('inactive_sym', '')} {l2} {ansi_bg(p3['bg'])}{ansi_fg(p2['bg'])}{sep}"
         t3 = f"{ansi_bg(p3['bg'])}{ansi_fg(p3['fg'])} 4{p3.get('inactive_sym', '')} {l3} {ansi_bg(bg_bar)}{ansi_fg(p3['bg'])}{sep}{RESET}"
         return f"{ansi_bg(bg_bar)} {t0}{t1}{t2}{t3} {RESET}"
+
+    if style == "workspace_color":
+        muted_bg, muted_fg = theme.get("muted_bg", "#1b1f2b"), theme.get("muted_fg", "#a3adc2")
+        ws_c = theme["palette"][project_slot("main", len(theme["palette"]))]
+        t0 = f"{ansi_bg(ws_c['bg'])}{ansi_fg(ws_c['fg'])}{BOLD} {ws_c.get('active_sym', '')}[main] 1 {l0} ✕ {RESET}"
+        rest = [
+            f"{ansi_bg(muted_bg)}{ansi_fg(ws_c['bg'])}{BOLD} {n}{RESET}{ansi_bg(muted_bg)}{ansi_fg(muted_fg)}"
+            f"{ws_c.get('inactive_sym', '')} {lbl} ✕ {RESET}"
+            for n, lbl in ((2, l1), (3, l2), (4, l3))
+        ]
+        return f"{ansi_bg(bg_bar)} {gap.join([t0, *rest])} {RESET}"
 
     if style == "smart_badges":
         t0 = f"{ansi_bg(p0['bg'])}{ansi_fg(p0['fg'])}{BOLD} 󰊢 1 {l0} ✕ {RESET}"
@@ -276,7 +287,7 @@ def print_single_card(
 def print_list(themes: list[dict[str, Any]], filter_query: str = "") -> None:
     cur_id = get_current_state()["theme_id"]
     items = filter_themes(themes, filter_query)
-    hdr_extra = f" — FILTER: '{filter_query}' ({len(items)} found)" if filter_query else " (60 THEMES)"
+    hdr_extra = f" — FILTER: '{filter_query}' ({len(items)} found)" if filter_query else f" ({len(themes)} THEMES)"
     print(f"\n{BOLD}{CYAN}=== WEZTERM TAB BAR THEME CATALOG{hdr_extra} ==={RESET}")
     if not items:
         print(f"\n  {YELLOW}No themes match filter '{filter_query}'.{RESET}\n")
@@ -464,6 +475,8 @@ def fonts_menu() -> str:
         ed_size = app.get("font_size") or 13
         tb_font = app.get("tab_font_family") or "Default"
         tb_size = app.get("tab_font_size") or 11
+        lig_on = app.get("font_ligatures") is not False
+        lig_badge = f"{GREEN}ON{RESET}" if lig_on else f"{YELLOW}OFF{RESET}"
 
         filtered = [
             (idx + 1, f)
@@ -482,7 +495,11 @@ def fonts_menu() -> str:
         print(f"{BOLD}{BLUE}╔{'═' * box_w}╗{RESET}")
         print(f"{BOLD}{BLUE}║{hdr_pad}║{RESET}")
         print(f"{BOLD}{BLUE}╚{'═' * box_w}╝{RESET}")
-        print(f"\n  {CYAN}Editor:{RESET} {BOLD}{ed_font}{RESET} ({ed_size}pt)    {MAGENTA}Tabs:{RESET} {BOLD}{tb_font}{RESET} ({tb_size}pt)")
+        print(
+            f"\n  {CYAN}Editor:{RESET} {BOLD}{ed_font}{RESET} ({ed_size}pt)    "
+            f"{MAGENTA}Tabs:{RESET} {BOLD}{tb_font}{RESET} ({tb_size}pt)    "
+            f"{CYAN}Ligatures:{RESET} {BOLD}{lig_badge}"
+        )
         if query:
             print(f"  {YELLOW}Active filter:{RESET} '{query}' ({len(filtered)} of {len(fonts)} fonts) — type [c] to clear")
         print(f"  {DIM}Page {page + 1}/{total_pages} ({len(filtered)} fonts found){RESET}\n")
@@ -507,8 +524,9 @@ def fonts_menu() -> str:
             status_msg = ""
 
         print(
-            f"\n  {DIM}{BOLD}[1-{len(fonts)}]{RESET}{DIM} Editor Font  |  {BOLD}[t<N>]{RESET}{DIM} Tab Font (e.g. t12)  |  "
-            f"{BOLD}[size <PT>]{RESET}{DIM} Editor Size  |  {BOLD}[tsize <PT>]{RESET}{DIM} Tab Size{RESET}"
+            f"\n  {DIM}{BOLD}[1-{len(fonts)}]{RESET}{DIM} Editor Font  |  {BOLD}[t<N>]{RESET}{DIM} Tab Font  |  "
+            f"{BOLD}[size <PT>]{RESET}{DIM} Editor Size  |  {BOLD}[tsize <PT>]{RESET}{DIM} Tab Font Size  |  "
+            f"{BOLD}[lh <N>]{RESET}{DIM} Line Height  |  {BOLD}[lig]{RESET}{DIM} Ligatures{RESET}"
         )
         print(
             f"  {DIM}{BOLD}[n/p]{RESET}{DIM} Page  |  {BOLD}[/text]{RESET}{DIM} Filter  |  "
@@ -532,6 +550,14 @@ def fonts_menu() -> str:
         elif low in ("c", "clear"):
             query = ""
             page = 0
+        elif low in ("lig", "ligatures"):
+            new_lig = not lig_on
+            ok, err = apply_appearance({"font_ligatures": new_lig})
+            status_msg = (
+                f"{GREEN}{BOLD}✔ Programming ligatures {'enabled' if new_lig else 'disabled'}!{RESET}"
+                if ok
+                else failure_msg(err)
+            )
         elif ans.startswith("/"):
             query = ans[1:].strip()
             page = 0
@@ -565,6 +591,15 @@ def fonts_menu() -> str:
                 status_msg = f"{GREEN}{BOLD}✔ Tab bar font size set to {sz:g}pt!{RESET}" if ok else failure_msg(err)
             except ValueError:
                 status_msg = f"{RED}Usage: tsize 11.5{RESET}"
+        elif low.startswith("lh "):
+            try:
+                lh = float(ans.split(None, 1)[1])
+                if not (0.8 <= lh <= 2.0):
+                    raise ValueError
+                ok, err = apply_appearance({"line_height": lh})
+                status_msg = f"{GREEN}{BOLD}✔ Line height set to {lh:g}!{RESET}" if ok else failure_msg(err)
+            except ValueError:
+                status_msg = f"{RED}Usage: lh 1.1 (between 0.8 and 2.0){RESET}"
         else:
             # Filter by typed text
             query = ans
@@ -592,17 +627,38 @@ def color_scheme_menu() -> str:
     matches: list[str] = []
 
     while True:
-        cur_scheme = get_current_state()["appearance"].get("color_scheme") or "Default"
+        app = get_current_state()["appearance"]
+        cur_scheme = app.get("color_scheme") or "Default"
+        light_scheme = app.get("color_scheme_light") or "Off"
+        dim_val = app.get("inactive_pane_brightness")
+        grad_on = bool(app.get("background_gradient"))
+        border_on = bool(app.get("accent_border"))
+        sbar_on = bool(app.get("status_bar"))
+        ed_on = app.get("open_in_editor") is not False
+        ed_cmd = app.get("editor_cmd") or "$EDITOR"
+        max_w = app.get("tab_max_width")
+        fancy_mode = "Auto" if app.get("use_fancy_tab_bar") is None else ("Fancy" if app.get("use_fancy_tab_bar") else "Retro")
         term_cols = shutil.get_terminal_size((90, 28)).columns
         box_w = max(68, min(88, term_cols - 4))
-        hdr = f"  🎨 TERMINAL COLOR SCHEMES ({len(schemes)} built-in WezTerm schemes)"
+        hdr = f"  🎨 COLORS, TABS, WINDOW & $EDITOR ({len(schemes)} built-in schemes)"
         hdr_pad = hdr + " " * max(0, box_w - visible_len(hdr))
 
         print("\033[2J\033[H", end="")
         print(f"{BOLD}{BLUE}╔{'═' * box_w}╗{RESET}")
         print(f"{BOLD}{BLUE}║{hdr_pad}║{RESET}")
         print(f"{BOLD}{BLUE}╚{'═' * box_w}╝{RESET}")
-        print(f"\n  {GREEN}Active scheme:{RESET} {BOLD}{cur_scheme}{RESET}\n")
+        print(
+            f"\n  {GREEN}Active scheme:{RESET} {BOLD}{cur_scheme}{RESET}    "
+            f"{CYAN}Light scheme:{RESET} {BOLD}{light_scheme}{RESET}    "
+            f"{MAGENTA}$EDITOR links:{RESET} {BOLD}{ed_cmd if ed_on else 'OFF'}{RESET}"
+        )
+        print(
+            f"  {DIM}Inactive dim:{RESET} {BOLD}{f'{dim_val:g}' if dim_val is not None else '1.0'}{RESET} · "
+            f"{DIM}Gradient:{RESET} {BOLD}{'ON' if grad_on else 'OFF'}{RESET} · "
+            f"{DIM}1px border:{RESET} {BOLD}{'ON' if border_on else 'OFF'}{RESET} · "
+            f"{DIM}Status bar:{RESET} {BOLD}{'ON' if sbar_on else 'OFF'}{RESET} · "
+            f"{DIM}Tabs:{RESET} {BOLD}{fancy_mode}{RESET} (max {max_w or 'auto'}c)\n"
+        )
         print(f"  {BOLD}Quick Favorites:{RESET}")
         for i, fav in enumerate(favorites, start=1):
             mark = f" {GREEN}★{RESET}" if fav == cur_scheme else ""
@@ -617,14 +673,102 @@ def color_scheme_menu() -> str:
             print(f"\n  {status_msg}")
             status_msg = ""
 
-        print(f"\n  {DIM}[1-{len(favorites)}] Apply favorite  |  [/query] Search {len(schemes)} schemes  |  [exact name] Apply  |  [q] Back{RESET}")
+        print(
+            f"\n  {DIM}[1-{len(favorites)}] Favorite | [/q] Search | [light <name>|off] | [dim <0.4-1.0>] | [grad] | [border] | [status]{RESET}"
+        )
+        print(
+            f"  {DIM}[editor <cmd>|env] Set $EDITOR | [links] Toggle click-to-editor | [maxw <16-120|auto>] | [fancy|retro|auto] | [q] Back{RESET}"
+        )
         try:
-            ans = input(f"  {BOLD}{CYAN}❯ Scheme or search:{RESET} ").strip()
+            ans = input(f"  {BOLD}{CYAN}❯ Scheme or command:{RESET} ").strip()
         except (KeyboardInterrupt, EOFError):
             return "Color scheme menu closed."
 
-        if not ans or ans.lower() in ("q", "quit", "back", "exit"):
+        low = ans.lower()
+        if not ans or low in ("q", "quit", "back", "exit"):
             return "Returned to theme catalog."
+        if low in ("links", "open-in-editor"):
+            ok, err = apply_appearance({"open_in_editor": not ed_on})
+            status_msg = (
+                f"{GREEN}{BOLD}✔ Stack-trace click-to-$EDITOR {'enabled' if not ed_on else 'disabled'}!{RESET}"
+                if ok
+                else failure_msg(err)
+            )
+            continue
+        if low.startswith("editor "):
+            val = ans.split(None, 1)[1].strip()
+            target = "Default" if val.lower() in ("env", "default", "auto", "off") else val
+            ok, err = apply_appearance({"editor_cmd": target, "open_in_editor": True})
+            status_msg = (
+                f"{GREEN}{BOLD}✔ $EDITOR command set to {'$EDITOR env' if target == 'Default' else target}!{RESET}"
+                if ok
+                else failure_msg(err)
+            )
+            continue
+        if low in ("fancy", "retro", "auto"):
+            fval: Any = "auto" if low == "auto" else (low == "fancy")
+            ok, err = apply_appearance({"use_fancy_tab_bar": fval})
+            status_msg = f"{GREEN}{BOLD}✔ Tab bar style set to {low.upper()}!{RESET}" if ok else failure_msg(err)
+            continue
+        if low.startswith("maxw "):
+            raw_w = ans.split(None, 1)[1].strip().lower()
+            try:
+                mw = 0 if raw_w in ("auto", "0", "default") else int(raw_w)
+                if mw != 0 and not (16 <= mw <= 120):
+                    raise ValueError
+                ok, err = apply_appearance({"tab_max_width": mw})
+                status_msg = (
+                    f"{GREEN}{BOLD}✔ Max tab width set to {'auto' if mw == 0 else f'{mw} cols'}!{RESET}"
+                    if ok
+                    else failure_msg(err)
+                )
+            except ValueError:
+                status_msg = f"{RED}Usage: maxw 40 (16-120) or maxw auto{RESET}"
+            continue
+        if low in ("status", "statusbar", "status-bar"):
+            ok, err = apply_appearance({"status_bar": not sbar_on})
+            status_msg = (
+                f"{GREEN}{BOLD}✔ Studio right-status bar {'enabled' if not sbar_on else 'disabled'}!{RESET}"
+                if ok
+                else failure_msg(err)
+            )
+            continue
+        if low == "grad":
+            ok, err = apply_appearance({"background_gradient": not grad_on})
+            status_msg = (
+                f"{GREEN}{BOLD}✔ Oklab radial gradient {'enabled' if not grad_on else 'disabled'}!{RESET}"
+                if ok
+                else failure_msg(err)
+            )
+            continue
+        if low == "border":
+            ok, err = apply_appearance({"accent_border": not border_on})
+            status_msg = (
+                f"{GREEN}{BOLD}✔ 1px accent frame border {'enabled' if not border_on else 'disabled'}!{RESET}"
+                if ok
+                else failure_msg(err)
+            )
+            continue
+        if low.startswith("dim "):
+            try:
+                dv = float(ans.split(None, 1)[1])
+                if not (0.4 <= dv <= 1.0):
+                    raise ValueError
+                ok, err = apply_appearance({"inactive_pane_brightness": dv})
+                status_msg = f"{GREEN}{BOLD}✔ Inactive pane brightness set to {dv:g}!{RESET}" if ok else failure_msg(err)
+            except ValueError:
+                status_msg = f"{RED}Usage: dim 0.78 (between 0.4 and 1.0){RESET}"
+            continue
+        if low.startswith("light "):
+            val = ans.split(None, 1)[1].strip()
+            target = "Default" if val.lower() in ("off", "none", "default") else val
+            ok, err = apply_appearance({"color_scheme_light": target})
+            status_msg = (
+                f"{GREEN}{BOLD}✔ Light-mode scheme {'cleared' if target == 'Default' else f'set to {target}'}!{RESET}"
+                if ok
+                else failure_msg(err)
+            )
+            continue
         if ans.isdigit():
             idx = int(ans) - 1
             if 0 <= idx < len(favorites):
@@ -685,7 +829,7 @@ def interactive_picker(themes: list[dict[str, Any]] = THEMES, initial_filter: st
         print("\033[2J\033[H", end="")
 
         box_w = max(68, min(92, term_cols - 4))
-        line1_plain = "  ✦ WEZTERM STUDIO — Tab Themes (60), Symbols, Fonts & Colors"
+        line1_plain = f"  ✦ WEZTERM STUDIO — Tab Themes ({len(themes)}), Symbols, Fonts & Colors"
         line1_pad = line1_plain + " " * max(0, box_w - visible_len(line1_plain))
 
         active_info = f"#{cur_id:02d} {cur_name}"
@@ -722,7 +866,7 @@ def interactive_picker(themes: list[dict[str, Any]] = THEMES, initial_filter: st
         if filter_query:
             print(
                 f"\n  {YELLOW}Active filter:{RESET} {BOLD}'{filter_query}'{RESET} "
-                f"({len(filtered)} themes) — type {BOLD}[c]{RESET} to show all 60"
+                f"({len(filtered)} themes) — type {BOLD}[c]{RESET} to show all {len(themes)}"
             )
 
         print(f"\n  {BOLD}{MAGENTA}─── Page {page + 1} of {total_pages} ({len(filtered)} themes) ───{RESET}\n")
@@ -739,7 +883,7 @@ def interactive_picker(themes: list[dict[str, Any]] = THEMES, initial_filter: st
             status_msg = ""
 
         print(
-            f"  {DIM}Commands: {BOLD}[1-60]{RESET}{DIM} Apply Theme  |  {BOLD}[s]{RESET}{DIM} Symbols  |  "
+            f"  {DIM}Commands: {BOLD}[1-{len(themes)}]{RESET}{DIM} Apply Theme  |  {BOLD}[s]{RESET}{DIM} Symbols  |  "
             f"{BOLD}[f]{RESET}{DIM} Fonts & Size  |  {BOLD}[cs]{RESET}{DIM} Color Scheme  |  {BOLD}[w]{RESET}{DIM} Web Studio{RESET}"
         )
         print(
@@ -772,7 +916,7 @@ def interactive_picker(themes: list[dict[str, Any]] = THEMES, initial_filter: st
         elif low in ("c", "clear", "all"):
             filter_query = ""
             page = 0
-            status_msg = f"{CYAN}Showing all 60 themes.{RESET}"
+            status_msg = f"{CYAN}Showing all {len(themes)} themes.{RESET}"
         elif low in ("s", "sym", "symbols"):
             status_msg = symbols_menu()
         elif low in ("f", "font", "fonts"):
@@ -839,7 +983,7 @@ def interactive_picker(themes: list[dict[str, Any]] = THEMES, initial_filter: st
                     bkp_note = f" {DIM}(Backup: {bkp.name}){RESET}" if bkp else ""
                     status_msg = f"{GREEN}{BOLD}✔ Theme #{tid:02d} ({chosen['name']}) applied!{RESET}{bkp_note}"
             else:
-                status_msg = f"{RED}Invalid theme number ({tid}). Enter 1 to 60.{RESET}"
+                status_msg = f"{RED}Invalid theme number ({tid}). Enter 1 to {len(themes)}.{RESET}"
         else:
             chosen = find_theme(ans, min_substr_len=3)
             if chosen:

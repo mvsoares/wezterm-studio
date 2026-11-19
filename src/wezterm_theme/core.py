@@ -40,13 +40,18 @@ DEFAULT_APPEARANCE: dict[str, Any] = {
     "font_weight": "Regular",
     "font_size": None,
     "line_height": None,
+    "font_ligatures": None,
     "tab_font_family": None,
     "tab_font_weight": "Medium",
     "tab_font_size": None,
     "color_scheme": None,
+    "color_scheme_light": None,
     "window_opacity": None,
     "window_padding": None,
     "window_decorations": None,
+    "inactive_pane_brightness": None,
+    "background_gradient": None,
+    "accent_border": None,
     "cursor_style": None,
     "cursor_blink_rate": None,
     "audible_bell": None,
@@ -55,6 +60,9 @@ DEFAULT_APPEARANCE: dict[str, Any] = {
     "tab_bar_at_bottom": None,
     "use_fancy_tab_bar": None,
     "tab_max_width": None,
+    "status_bar": None,
+    "open_in_editor": None,
+    "editor_cmd": None,
 }
 
 
@@ -140,7 +148,7 @@ def _parse_lua_metadata(lua_path: Path) -> tuple[int | None, int | None, dict[st
         return None, None, None, True
 
 
-def _extract_loader_appearance(merged: dict[str, Any]) -> dict[str, Any]:
+def _extract_loader_appearance(merged: dict[str, Any], settings_only: dict[str, Any] | None = None) -> dict[str, Any]:
     app = dict(DEFAULT_APPEARANCE)
     f = merged.get("font") if isinstance(merged.get("font"), dict) else {}
     c = merged.get("colors") if isinstance(merged.get("colors"), dict) else {}
@@ -150,11 +158,15 @@ def _extract_loader_appearance(merged: dict[str, Any]) -> dict[str, Any]:
     be = merged.get("bell") if isinstance(merged.get("bell"), dict) else {}
     pf = merged.get("performance") if isinstance(merged.get("performance"), dict) else {}
     d = merged.get("display") if isinstance(merged.get("display"), dict) else {}
+    st_sec = merged.get("status") if isinstance(merged.get("status"), dict) else {}
+    hl = merged.get("hyperlinks") if isinstance(merged.get("hyperlinks"), dict) else {}
+    user_tb = (settings_only or {}).get("tabs") if isinstance((settings_only or {}).get("tabs"), dict) else {}
 
     app["font_family"] = f.get("family")
     app["font_weight"] = f.get("weight") or "Regular"
     app["font_size"] = f.get("size")
     app["line_height"] = f.get("line_height")
+    app["font_ligatures"] = f.get("ligatures") if isinstance(f.get("ligatures"), bool) else None
 
     ff = tb.get("frame_font") if isinstance(tb.get("frame_font"), dict) else {}
     app["tab_font_family"] = ff.get("family")
@@ -162,6 +174,7 @@ def _extract_loader_appearance(merged: dict[str, Any]) -> dict[str, Any]:
     app["tab_font_size"] = ff.get("size")
 
     app["color_scheme"] = c.get("scheme")
+    app["color_scheme_light"] = c.get("scheme_light") or None
     app["window_opacity"] = w.get("opacity")
 
     pad = w.get("padding")
@@ -174,14 +187,26 @@ def _extract_loader_appearance(merged: dict[str, Any]) -> dict[str, Any]:
     app["window_decorations"] = w.get("decorations") or (
         "TITLE | RESIZE" if d.get("use_x11") else "INTEGRATED_BUTTONS | RESIZE"
     )
+    hsb = w.get("inactive_pane_hsb")
+    if isinstance(hsb, dict) and isinstance(hsb.get("brightness"), (int, float)):
+        app["inactive_pane_brightness"] = float(hsb["brightness"])
+    if w.get("background_gradient") is not None:
+        app["background_gradient"] = bool(w.get("background_gradient"))
+    if w.get("accent_border") is not None:
+        app["accent_border"] = bool(w.get("accent_border"))
     app["cursor_style"] = cu.get("style")
     app["cursor_blink_rate"] = cu.get("blink_rate")
     app["audible_bell"] = be.get("audible")
     app["scrollback_lines"] = pf.get("scrollback_lines")
     app["hide_tab_bar_if_only_one_tab"] = tb.get("hide_if_only_one_tab")
     app["tab_bar_at_bottom"] = tb.get("at_bottom")
-    app["use_fancy_tab_bar"] = None  # Controlled per-theme unless overridden
+    app["use_fancy_tab_bar"] = bool(user_tb["fancy"]) if isinstance(user_tb.get("fancy"), bool) else None
     app["tab_max_width"] = tb.get("max_width")
+    if st_sec.get("enabled") is not None:
+        app["status_bar"] = bool(st_sec.get("enabled"))
+    if hl.get("open_in_editor") is not None:
+        app["open_in_editor"] = bool(hl.get("open_in_editor"))
+    app["editor_cmd"] = hl.get("editor") or None
     return app
 
 
@@ -213,7 +238,7 @@ def get_current_state(paths: dict[str, Path] | None = None) -> dict[str, Any]:
             "theme_id": tid,
             "tab_title_len": tlen,
             "symbols": syms,
-            "appearance": _extract_loader_appearance(merged),
+            "appearance": _extract_loader_appearance(merged, settings_only=settings),
         }
 
     # Standalone mode
@@ -480,7 +505,13 @@ def _sync_loader_settings(
             tabs["symbols"] = symbols
 
     if appearance_updates:
-        if "font_family" in appearance_updates or "font_weight" in appearance_updates or "font_size" in appearance_updates or "line_height" in appearance_updates:
+        if (
+            "font_family" in appearance_updates
+            or "font_weight" in appearance_updates
+            or "font_size" in appearance_updates
+            or "line_height" in appearance_updates
+            or "font_ligatures" in appearance_updates
+        ):
             f = data.setdefault("font", {})
             if appearance_updates.get("font_family"):
                 f["family"] = str(appearance_updates["font_family"])
@@ -490,6 +521,8 @@ def _sync_loader_settings(
                 f["size"] = float(appearance_updates["font_size"]) if float(appearance_updates["font_size"]) % 1 else int(float(appearance_updates["font_size"]))
             if appearance_updates.get("line_height") is not None:
                 f["line_height"] = round(float(appearance_updates["line_height"]), 2)
+            if "font_ligatures" in appearance_updates and appearance_updates["font_ligatures"] is not None:
+                f["ligatures"] = bool(appearance_updates["font_ligatures"])
 
         if "tab_font_family" in appearance_updates or "tab_font_weight" in appearance_updates or "tab_font_size" in appearance_updates:
             ff = tabs.setdefault("frame_font", {})
@@ -501,15 +534,29 @@ def _sync_loader_settings(
                 val = float(appearance_updates["tab_font_size"])
                 ff["size"] = val if val % 1 else int(val)
 
-        if "color_scheme" in appearance_updates:
+        if "color_scheme" in appearance_updates or "color_scheme_light" in appearance_updates:
             c = data.setdefault("colors", {})
-            scheme = appearance_updates["color_scheme"]
-            if not scheme or scheme == "Default":
-                c.pop("scheme", None)
-            else:
-                c["scheme"] = str(scheme)
+            if "color_scheme" in appearance_updates:
+                scheme = appearance_updates["color_scheme"]
+                if not scheme or scheme == "Default":
+                    c.pop("scheme", None)
+                else:
+                    c["scheme"] = str(scheme)
+            if "color_scheme_light" in appearance_updates:
+                scheme_light = appearance_updates["color_scheme_light"]
+                if not scheme_light or scheme_light == "Default":
+                    c.pop("scheme_light", None)
+                else:
+                    c["scheme_light"] = str(scheme_light)
 
-        if "window_opacity" in appearance_updates or "window_padding" in appearance_updates or "window_decorations" in appearance_updates:
+        if (
+            "window_opacity" in appearance_updates
+            or "window_padding" in appearance_updates
+            or "window_decorations" in appearance_updates
+            or "inactive_pane_brightness" in appearance_updates
+            or "background_gradient" in appearance_updates
+            or "accent_border" in appearance_updates
+        ):
             w = data.setdefault("window", {})
             if appearance_updates.get("window_opacity") is not None:
                 w["opacity"] = round(float(appearance_updates["window_opacity"]), 2)
@@ -522,6 +569,20 @@ def _sync_loader_settings(
                     w["padding"] = {"left": p, "right": p, "top": p, "bottom": p}
             if appearance_updates.get("window_decorations"):
                 w["decorations"] = str(appearance_updates["window_decorations"])
+            if "inactive_pane_brightness" in appearance_updates:
+                br = appearance_updates["inactive_pane_brightness"]
+                if br is None:
+                    w.pop("inactive_pane_hsb", None)
+                else:
+                    br_f = round(float(br), 2)
+                    w["inactive_pane_hsb"] = {
+                        "saturation": 1.0 if br_f >= 0.99 else 0.9,
+                        "brightness": br_f,
+                    }
+            if "background_gradient" in appearance_updates and appearance_updates["background_gradient"] is not None:
+                w["background_gradient"] = bool(appearance_updates["background_gradient"])
+            if "accent_border" in appearance_updates and appearance_updates["accent_border"] is not None:
+                w["accent_border"] = bool(appearance_updates["accent_border"])
 
         if "cursor_style" in appearance_updates or "cursor_blink_rate" in appearance_updates:
             cu = data.setdefault("cursor", {})
@@ -543,10 +604,31 @@ def _sync_loader_settings(
             tabs["hide_if_only_one_tab"] = bool(appearance_updates["hide_tab_bar_if_only_one_tab"])
         if "tab_bar_at_bottom" in appearance_updates and appearance_updates["tab_bar_at_bottom"] is not None:
             tabs["at_bottom"] = bool(appearance_updates["tab_bar_at_bottom"])
-        if "use_fancy_tab_bar" in appearance_updates and appearance_updates["use_fancy_tab_bar"] is not None:
-            tabs["fancy"] = bool(appearance_updates["use_fancy_tab_bar"])
-        if "tab_max_width" in appearance_updates and appearance_updates["tab_max_width"] is not None:
-            tabs["max_width"] = int(appearance_updates["tab_max_width"])
+        if "use_fancy_tab_bar" in appearance_updates:
+            fval = appearance_updates["use_fancy_tab_bar"]
+            if fval is None or fval == "auto":
+                tabs.pop("fancy", None)
+            else:
+                tabs["fancy"] = bool(fval)
+        if "tab_max_width" in appearance_updates:
+            mval = appearance_updates["tab_max_width"]
+            if mval is None or int(mval or 0) <= 0:
+                tabs.pop("max_width", None)
+            else:
+                tabs["max_width"] = int(mval)
+        if "status_bar" in appearance_updates and appearance_updates["status_bar"] is not None:
+            st_sec = data.setdefault("status", {})
+            st_sec["enabled"] = bool(appearance_updates["status_bar"])
+        if "open_in_editor" in appearance_updates or "editor_cmd" in appearance_updates:
+            hl = data.setdefault("hyperlinks", {})
+            if "open_in_editor" in appearance_updates and appearance_updates["open_in_editor"] is not None:
+                hl["open_in_editor"] = bool(appearance_updates["open_in_editor"])
+            if "editor_cmd" in appearance_updates:
+                ed = appearance_updates["editor_cmd"]
+                if not ed or ed == "Default":
+                    hl.pop("editor", None)
+                else:
+                    hl["editor"] = str(ed)
 
     paths["config_dir"].mkdir(parents=True, exist_ok=True)
     settings_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -717,7 +799,6 @@ def apply_theme(
 
     if loader:
         prev_settings = paths["settings_json"].read_text(encoding="utf-8") if paths["settings_json"].is_file() else None
-        lua_code = generate_lua_for_theme(theme, tab_title_len=eff_len, symbols=eff_syms)
         _sync_loader_settings(
             paths,
             theme_id=theme["id"],
@@ -725,6 +806,10 @@ def apply_theme(
             symbols=eff_syms,
             appearance_updates=appearance_updates,
         )
+        new_settings = _read_json_safe(paths["settings_json"])
+        user_fancy = (new_settings.get("tabs") or {}).get("fancy") if isinstance(new_settings.get("tabs"), dict) else None
+        loader_app = {"_loader_only": True, "use_fancy_tab_bar": user_fancy} if isinstance(user_fancy, bool) else None
+        lua_code = generate_lua_for_theme(theme, tab_title_len=eff_len, symbols=eff_syms, appearance=loader_app)
         err = _install_module_transactional(paths["tab_theme_lua"], lua_code, paths)
         if err is not None:
             if prev_settings is None:
@@ -739,7 +824,14 @@ def apply_theme(
     if appearance_updates:
         for k, v in appearance_updates.items():
             if k in DEFAULT_APPEARANCE:
-                merged_app[k] = v
+                if k in ("color_scheme", "color_scheme_light", "editor_cmd") and (not v or v == "Default"):
+                    merged_app[k] = None
+                elif k == "use_fancy_tab_bar" and v == "auto":
+                    merged_app[k] = None
+                elif k == "tab_max_width" and (v is None or int(v or 0) <= 0):
+                    merged_app[k] = None
+                else:
+                    merged_app[k] = v
 
     clean_app = {k: v for k, v in merged_app.items() if v is not None}
     lua_code = generate_lua_for_theme(
@@ -900,7 +992,7 @@ def import_preset(preset_data: dict[str, Any] | str | Path, paths: dict[str, Pat
     tid = int(data.get("theme_id", 10))
     theme = get_theme_by_id(tid)
     if not theme:
-        return False, f"Theme #{tid} does not exist in catalog (1–60)."
+        return False, f"Theme #{tid} does not exist in catalog (1–{len(THEMES)})."
 
     tlen = int(data.get("tab_title_len", 15))
     tlen = max(4, min(60, tlen))

@@ -1,4 +1,4 @@
-"""Catalog of 60 WezTerm tab bar themes, WCAG contrast helpers, symbol builder, and Lua generator.
+"""Catalog of 62 WezTerm tab bar themes, WCAG contrast helpers, symbol builder, and Lua generator.
 
 Cross-platform (Linux, macOS, Windows) and 100% Python standard library.
 """
@@ -16,7 +16,7 @@ CATEGORIES: list[tuple[str, str, int, int]] = [
     ("c3", "Developer Palettes", 21, 30),
     ("c4", "Synth & Cyberpunk", 31, 40),
     ("c5", "Nature & Earth Tones", 41, 50),
-    ("c6", "Minimal, Badges & CRT", 51, 60),
+    ("c6", "Minimal, Badges & CRT", 51, 62),
 ]
 
 CATEGORY_SHORTCUTS: dict[str, str] = {}
@@ -1292,7 +1292,50 @@ THEMES: list[dict[str, Any]] = [   {   'bg_bar': '#15161c',
                            'fg': '#ff3333',
                            'inactive_sym': '[- '}],
         'style': 'crt_amber',
-        'use_fancy': False}]
+        'use_fancy': False},
+    {   'bg_bar': '#11131a',
+        'category': 'Minimal, Badges & CRT',
+        'description': 'Dynamic Oklab Powerline gradient synthesized at runtime from your active '
+                       'WezTerm color_scheme.',
+        'id': 61,
+        'name': 'Scheme-Adaptive Powerline',
+        'palette': [   {'active_sym': '⚡ ➜ ', 'bg': '#2563eb', 'fg': '#ffffff', 'inactive_sym': ' ·'},
+                       {'active_sym': '⚡ ➜ ', 'bg': '#4f46e5', 'fg': '#ffffff', 'inactive_sym': ' ·'},
+                       {'active_sym': '⚡ ➜ ', 'bg': '#7c3aed', 'fg': '#ffffff', 'inactive_sym': ' ·'},
+                       {'active_sym': '⚡ ➜ ', 'bg': '#a855f7', 'fg': '#ffffff', 'inactive_sym': ' ·'}],
+        'sep_char': '\ue0b0',
+        'style': 'adaptive_gradient',
+        'use_fancy': False},
+    {   'bg_bar': '#12141c',
+        'category': 'Minimal, Badges & CRT',
+        'description': 'Deterministic per-workspace accent: hashes your active WezTerm workspace '
+                       'name so each workspace gets a distinct color identity.',
+        'id': 62,
+        'muted_bg': '#1b1f2b',
+        'muted_fg': '#a3adc2',
+        'name': 'Workspace Chameleon',
+        'palette': [   {'active_sym': '󱂬 ', 'bg': '#60a5fa', 'fg': '#111827', 'inactive_sym': ''},
+                       {'active_sym': '󱂬 ', 'bg': '#34d399', 'fg': '#111827', 'inactive_sym': ''},
+                       {'active_sym': '󱂬 ', 'bg': '#c084fc', 'fg': '#111827', 'inactive_sym': ''},
+                       {'active_sym': '󱂬 ', 'bg': '#fbbf24', 'fg': '#111827', 'inactive_sym': ''},
+                       {'active_sym': '󱂬 ', 'bg': '#fb7185', 'fg': '#111827', 'inactive_sym': ''},
+                       {'active_sym': '󱂬 ', 'bg': '#22d3ee', 'fg': '#111827', 'inactive_sym': ''},
+                       {'active_sym': '󱂬 ', 'bg': '#a3e635', 'fg': '#111827', 'inactive_sym': ''},
+                       {'active_sym': '󱂬 ', 'bg': '#f472b6', 'fg': '#111827', 'inactive_sym': ''}],
+        'style': 'workspace_color',
+        'use_fancy': True}]
+
+
+def _hover_pair(bg: str, fg: str) -> tuple[str, str]:
+    """Compute a subtle, WCAG-checked hover background/foreground pair."""
+    h = bg.lstrip("#")
+    rgb = [int(h[i : i + 2], 16) for i in (0, 2, 4)]
+    if _luminance(bg) < 0.35:
+        shifted = [min(255, int(round(c + (255 - c) * 0.14))) for c in rgb]
+    else:
+        shifted = [max(0, int(round(c * 0.89))) for c in rgb]
+    h_bg = "#{:02x}{:02x}{:02x}".format(*shifted)
+    return h_bg, readable_fg(h_bg, fg)
 
 def _luminance(hex_color: str) -> float:
     h = hex_color.lstrip("#")
@@ -1580,7 +1623,11 @@ def _lua_str(val: str) -> str:
     return f"'{escaped}'"
 
 
-def _emit_appearance_lua(appearance: dict[str, Any]) -> list[str]:
+def _emit_appearance_lua(
+    appearance: dict[str, Any],
+    bg_bar: str = "#15161c",
+    accent_color: str = "#4285F4",
+) -> list[str]:
     """Emit cross-platform Lua lines for font, window, cursor, bell, and color scheme."""
     lines: list[str] = ["  -- ── Font, Window & Appearance (wezterm-theme studio) ──"]
 
@@ -1594,9 +1641,24 @@ def _emit_appearance_lua(appearance: dict[str, Any]) -> list[str]:
         lines.append(f"  config.font_size = {float(appearance['font_size']):g}")
     if appearance.get("line_height") is not None:
         lines.append(f"  config.line_height = {float(appearance['line_height']):g}")
+    if appearance.get("font_ligatures") is False:
+        lines.append("  config.harfbuzz_features = { 'calt=0', 'clig=0', 'liga=0' }")
 
     scheme = appearance.get("color_scheme")
-    if scheme and scheme != "Default":
+    scheme_light = appearance.get("color_scheme_light")
+    has_dark_scheme = bool(scheme and scheme != "Default")
+    has_light_scheme = bool(scheme_light and scheme_light != "Default")
+    if has_light_scheme:
+        lines.append(
+            "  local _wt_dark = ((wezterm.gui and wezterm.gui.get_appearance and wezterm.gui.get_appearance()) or 'Dark'):find('Dark') ~= nil"
+        )
+        lines.append("  if not _wt_dark then")
+        lines.append(f"    config.color_scheme = {_lua_str(str(scheme_light))}")
+        if has_dark_scheme:
+            lines.append("  else")
+            lines.append(f"    config.color_scheme = {_lua_str(str(scheme))}")
+        lines.append("  end")
+    elif has_dark_scheme:
         lines.append(f"  config.color_scheme = {_lua_str(str(scheme))}")
 
     if appearance.get("window_opacity") is not None:
@@ -1615,6 +1677,13 @@ def _emit_appearance_lua(appearance: dict[str, Any]) -> list[str]:
 
     if appearance.get("window_decorations"):
         lines.append(f"  config.window_decorations = {_lua_str(str(appearance['window_decorations']))}")
+
+    if appearance.get("inactive_pane_brightness") is not None:
+        br = float(appearance["inactive_pane_brightness"])
+        sat = 1.0 if br >= 0.99 else 0.9
+        lines.append(f"  config.inactive_pane_hsb = {{ saturation = {sat:g}, brightness = {br:g} }}")
+        lines.append("  config.colors = config.colors or {}")
+        lines.append(f"  config.colors.split = {_lua_str(accent_color)}")
 
     if appearance.get("cursor_style"):
         lines.append(f"  config.default_cursor_style = {_lua_str(str(appearance['cursor_style']))}")
@@ -1647,8 +1716,190 @@ def _emit_appearance_lua(appearance: dict[str, Any]) -> list[str]:
         if tab_size is not None:
             lines.append(f"  config.window_frame.font_size = {float(tab_size):g}")
 
+    if appearance.get("background_gradient"):
+        lines.extend([
+            "  do",
+            "    local _g_dark = ((wezterm.gui and wezterm.gui.get_appearance and wezterm.gui.get_appearance()) or 'Dark'):find('Dark') ~= nil",
+            "    local _g_schemes = (wezterm.color and wezterm.color.get_builtin_schemes and wezterm.color.get_builtin_schemes()) or {}",
+            "    local _g_active = _g_schemes[config.color_scheme or ''] or {}",
+            f"    local _g_base_hex = _g_active.background or {_lua_str(bg_bar)}",
+            "    local _g_ok, _g_base = pcall(wezterm.color.parse, _g_base_hex)",
+            "    if _g_ok and _g_base then",
+            "      local _g_edge = _g_dark and _g_base:lighten(0.06) or _g_base:darken(0.06)",
+            "      config.window_background_gradient = {",
+            "        colors = { tostring(_g_edge), tostring(_g_base) },",
+            "        blend = 'Oklab',",
+            "        orientation = { Radial = { cx = 0.8, cy = 0.85, radius = 1.15 } },",
+            "      }",
+            "    end",
+            "  end",
+        ])
+
+    if appearance.get("accent_border"):
+        lines.extend([
+            "  config.window_frame = config.window_frame or {}",
+            "  config.window_frame.border_left_width = '1px'",
+            "  config.window_frame.border_right_width = '1px'",
+            "  config.window_frame.border_top_height = '1px'",
+            "  config.window_frame.border_bottom_height = '1px'",
+            f"  config.window_frame.border_left_color = {_lua_str(accent_color)}",
+            f"  config.window_frame.border_right_color = {_lua_str(accent_color)}",
+            f"  config.window_frame.border_top_color = {_lua_str(accent_color)}",
+            f"  config.window_frame.border_bottom_color = {_lua_str(accent_color)}",
+            "  config.colors = config.colors or {}",
+            f"  config.colors.split = config.colors.split or {_lua_str(accent_color)}",
+        ])
+
     lines.append("")
     return lines
+
+
+def _emit_status_bar_lua(accent_color: str = "#4285F4", accent_fg: str = "#ffffff") -> list[str]:
+    """Emit cross-platform Studio right-status bar (mode pill, workspace, mux, git, battery, clock)."""
+    return [
+        "  -- ── Studio Right-Status Bar (mode, workspace, mux, git, battery, clock) ──",
+        "  config.status_update_interval = config.status_update_interval or 5000",
+        "  wezterm.GLOBAL._wt_git_cache = wezterm.GLOBAL._wt_git_cache or {}",
+        "",
+        "  local function _wt_git_branch(cwd)",
+        "    if not cwd or cwd == '' then return '' end",
+        "    local now = os.time()",
+        "    local cache = wezterm.GLOBAL._wt_git_cache",
+        "    local entry = cache[cwd]",
+        "    if entry and (now - entry.ts) < 10 then return entry.branch end",
+        "    local ok, success, stdout = pcall(wezterm.run_child_process, {",
+        "      'git', '-C', cwd, 'rev-parse', '--abbrev-ref', 'HEAD',",
+        "    })",
+        "    local branch = (ok and success and stdout) and stdout:gsub('%s+$', '') or ''",
+        "    local n = 0",
+        "    for _ in pairs(cache) do n = n + 1 end",
+        "    if n > 64 then cache = {}; wezterm.GLOBAL._wt_git_cache = cache end",
+        "    cache[cwd] = { branch = branch, ts = now }",
+        "    return branch",
+        "  end",
+        "",
+        "  local _wt_modes = {",
+        "    resize_pane = { text = ' 󰙕 RESIZE ', bg = '#f9ab00', fg = '#202124' },",
+        "    copy_mode   = { text = ' 󰆏 COPY ',   bg = '#8ab4f8', fg = '#202124' },",
+        "    search_mode = { text = ' 󰍉 SEARCH ', bg = '#c58af9', fg = '#202124' },",
+        "  }",
+        "",
+        "  wezterm.on('update-status', function(window, pane)",
+        "    local cols = 200",
+        "    local ok_d, dims = pcall(function() return pane:get_dimensions() end)",
+        "    if ok_d and dims and dims.cols then cols = dims.cols end",
+        "    local wide = cols >= 90",
+        "    local segs = {}",
+        "",
+        "    local ok_ws, ws = pcall(function() return window:active_workspace() end)",
+        "    if ok_ws and ws and ws ~= '' and ws ~= 'default' then",
+        "      table.insert(segs, '󱂬 ' .. ws)",
+        "    end",
+        "",
+        "    local ok_dom, domain = pcall(function() return pane:get_domain_name() end)",
+        "    if ok_dom and domain and domain ~= '' and domain ~= 'local' then",
+        "      local ok_m, meta = pcall(function() return pane:get_metadata() end)",
+        "      local lag = (ok_m and type(meta) == 'table' and meta.since_last_response_ms) or nil",
+        "      table.insert(segs, (lag and lag > 0) and string.format('󰌘 %s %dms', domain, lag) or ('󰌘 ' .. domain))",
+        "    end",
+        "",
+        "    if wide then",
+        "      local ok_c, cwd_uri = pcall(function() return pane:get_current_working_dir() end)",
+        "      local cwd = ok_c and cwd_uri and (type(cwd_uri) == 'string' and cwd_uri:gsub('^file://[^/]*', '') or cwd_uri.file_path) or ''",
+        "      cwd = cwd:gsub('^/([A-Za-z]:)', '%1')",
+        "      local br = _wt_git_branch(cwd)",
+        "      if br ~= '' then table.insert(segs, ' ' .. br) end",
+        "      local ok_b, bat = pcall(wezterm.battery_info)",
+        "      if ok_b and type(bat) == 'table' then",
+        "        for _, b in ipairs(bat) do",
+        "          table.insert(segs, string.format('%.0f%%', (b.state_of_charge or 0) * 100))",
+        "        end",
+        "      end",
+        "    end",
+        "",
+        "    table.insert(segs, wezterm.strftime('%H:%M'))",
+        "",
+        "    local els = {}",
+        "    local badge = nil",
+        "    local ok_l, is_ldr = pcall(function() return window:leader_is_active() end)",
+        "    if ok_l and is_ldr then",
+        "      badge = { text = ' ⚡ LEADER ', bg = '#ea4335', fg = '#ffffff' }",
+        "    else",
+        "      local ok_k, kt = pcall(function() return window:active_key_table() end)",
+        "      if ok_k and kt then",
+        f"        badge = _wt_modes[kt] or {{ text = ' 󰌌 ' .. kt:upper() .. ' ', bg = {_lua_str(accent_color)}, fg = {_lua_str(accent_fg)} }}",
+        "      end",
+        "    end",
+        "    if badge then",
+        "      table.insert(els, { Background = { Color = badge.bg } })",
+        "      table.insert(els, { Foreground = { Color = badge.fg } })",
+        "      table.insert(els, { Attribute = { Intensity = 'Bold' } })",
+        "      table.insert(els, { Text = badge.text })",
+        "      table.insert(els, 'ResetAttributes')",
+        "    end",
+        "    if #segs > 0 then",
+        f"      table.insert(els, {{ Foreground = {{ Color = {_lua_str(accent_color)} }} }})",
+        "      table.insert(els, { Text = '  ✦ ' })",
+        "      table.insert(els, { Foreground = { Color = '#a6adc8' } })",
+        "      table.insert(els, { Text = table.concat(segs, '   ') .. '  ' })",
+        "    end",
+        "    window:set_right_status(wezterm.format(els))",
+        "  end)",
+        "",
+    ]
+
+
+def _emit_editor_hyperlinks_lua(editor_cmd: str | None = None) -> list[str]:
+    """Emit stack-trace file:line click-to-$EDITOR + GitHub owner/repo#123 hyperlink rules."""
+    ed_expr = (
+        f"{_lua_str(editor_cmd)}"
+        if editor_cmd and editor_cmd != "Default"
+        else "(os.getenv('EDITOR') or os.getenv('VISUAL') or 'nvim')"
+    )
+    return [
+        "  -- ── Smart Hyperlinks & Click-to-$EDITOR (file:line + owner/repo#123) ──",
+        "  config.hyperlink_rules = config.hyperlink_rules or (wezterm.default_hyperlink_rules and wezterm.default_hyperlink_rules() or {})",
+        "  table.insert(config.hyperlink_rules, {",
+        "    regex = [[\\b([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)#(\\d+)\\b]],",
+        "    format = 'https://github.com/$1/$2/issues/$3',",
+        "  })",
+        "  table.insert(config.hyperlink_rules, {",
+        "    regex = [[\\b((?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\\.(?:py|rs|lua|js|ts|tsx|jsx|go|c|cc|cpp|h|hpp|java|kt|rb|sh|zsh|json|ya?ml|toml|md|html|css|sql)):(\\d+)(?::\\d+)?\\b]],",
+        "    format = 'editfile://$1:$2',",
+        "  })",
+        "  table.insert(config.hyperlink_rules, {",
+        "    regex = [[((?:/[A-Za-z0-9_.-]|\\.\\.?/)[A-Za-z0-9_./-]*\\.[A-Za-z0-9]{1,8}):(\\d+)(?::\\d+)?\\b]],",
+        "    format = 'editfile://$1:$2',",
+        "  })",
+        "",
+        "  local function _wt_editor_args(ed, file_path, line_num)",
+        "    local base = (ed:match('([^/\\\\]+)$') or ed):lower()",
+        "    if base:find('^code') or base:find('^codium') or base:find('^cursor') or base == 'subl' then",
+        "      return { ed, '-g', file_path .. ':' .. line_num }",
+        "    elseif base == 'hx' or base == 'helix' or base == 'zed' then",
+        "      return { ed, file_path .. ':' .. line_num }",
+        "    end",
+        "    return { ed, '+' .. line_num, file_path }",
+        "  end",
+        "",
+        "  wezterm.on('open-uri', function(window, pane, uri)",
+        "    local raw_target = type(uri) == 'string' and uri:match('^editfile://(.+)$') or nil",
+        "    if not raw_target then return end",
+        "    local file_part, line_num = raw_target:match('^(.+):(%d+)$')",
+        "    if not file_part then file_part = raw_target; line_num = '1' end",
+        "    local resolved = file_part",
+        "    if not resolved:match('^/') and not resolved:match('^%a:[/\\\\]') then",
+        "      local ok_c, cwd_uri = pcall(function() return pane:get_current_working_dir() end)",
+        "      local cwd = ok_c and cwd_uri and (type(cwd_uri) == 'string' and cwd_uri:gsub('^file://[^/]*', '') or cwd_uri.file_path) or ''",
+        "      cwd = cwd:gsub('/+$', '')",
+        "      if cwd ~= '' then resolved = cwd .. '/' .. resolved end",
+        "    end",
+        f"    local ed = {ed_expr}",
+        "    window:perform_action(wezterm.action.SpawnCommandInNewTab { args = _wt_editor_args(ed, resolved, line_num) }, pane)",
+        "    return false",
+        "  end)",
+        "",
+    ]
 
 
 def generate_lua_for_theme(
@@ -1698,8 +1949,12 @@ def generate_lua_for_theme(
             lua.append(f"  pcall(wezterm.add_to_config_reload_watch_list, [==[{wf}]==])")
         lua.append("")
 
-    if appearance:
-        lua.extend(_emit_appearance_lua(appearance))
+    if appearance and not appearance.get("_loader_only"):
+        lua.extend(_emit_appearance_lua(appearance, bg_bar=bg_bar, accent_color=palette[0]["bg"]))
+        if appearance.get("status_bar"):
+            lua.extend(_emit_status_bar_lua(accent_color=palette[0]["bg"], accent_fg=palette[0]["fg"]))
+        if appearance.get("open_in_editor"):
+            lua.extend(_emit_editor_hyperlinks_lua(appearance.get("editor_cmd")))
 
     lua.extend([
         f"  config.use_fancy_tab_bar = {str(use_fancy).lower()}",
@@ -1707,15 +1962,15 @@ def generate_lua_for_theme(
         "    config.tab_bar_at_bottom = true",
         "  end",
         "  config.show_tab_index_in_tab_bar = false",
-        f"  if (config.tab_max_width or 0) < {min_max_width} then",
+        "  if config.tab_max_width == nil then",
         f"    config.tab_max_width = {min_max_width}",
         "  end",
         "  config.colors = config.colors or {}",
         "  config.colors.tab_bar = {",
         f"    background = '{bg_bar}',",
         f"    active_tab = {{ bg_color = '{palette[0]['bg']}', fg_color = '{palette[0]['fg']}' }},",
-        f"    inactive_tab = {{ bg_color = '{palette[1]['bg']}', fg_color = '{palette[1]['fg']}' }},",
-        f"    inactive_tab_hover = {{ bg_color = '{palette[2]['bg']}', fg_color = '{palette[2]['fg']}' }},",
+        f"    inactive_tab = {{ bg_color = '{palette[1 % len(palette)]['bg']}', fg_color = '{palette[1 % len(palette)]['fg']}' }},",
+        f"    inactive_tab_hover = {{ bg_color = '{palette[2 % len(palette)]['bg']}', fg_color = '{palette[2 % len(palette)]['fg']}' }},",
         f"    new_tab = {{ bg_color = '{bg_bar}', fg_color = '#64748b' }},",
         f"    new_tab_hover = {{ bg_color = '{palette[0]['bg']}', fg_color = '{palette[0]['fg']}' }},",
         "  }",
@@ -1744,6 +1999,7 @@ def generate_lua_for_theme(
         "    pwsh = true, powershell = true, cmd = true, nu = true, wsl = true, wslhost = true,",
         "    tmux = true, wezterm = true, ['wezterm-gui'] = true,",
         "  }",
+        "  local split_sup = { [2] = '²', [3] = '³', [4] = '⁴', [5] = '⁵', [6] = '⁶', [7] = '⁷', [8] = '⁸', [9] = '⁹' }",
         "",
         "  local function get_title_info(tab)",
         "    local pane = tab.active_pane",
@@ -1757,19 +2013,38 @@ def generate_lua_for_theme(
         "        dir = cwd:match('([^/]+)$') or cwd",
         "      end",
         "    end",
-        "    local uv_cmd = (pane.user_vars or {}).cmd or ''",
+        "    local uv = pane.user_vars or {}",
+        "    local uv_cmd = uv.cmd or uv.WEZTERM_CMD or ''",
+        "    if uv_cmd == '' and uv.WEZTERM_PROG and uv.WEZTERM_PROG ~= '' then",
+        "      local first_tok = uv.WEZTERM_PROG:match('^%s*(%S+)') or ''",
+        "      uv_cmd = first_tok:match('([^/\\\\]+)$') or first_tok",
+        "    end",
         "    local fg = pane.foreground_process_name or ''",
         "    local process = uv_cmd ~= '' and uv_cmd or (fg:match('([^/\\\\]+)$') or '')",
         "    process = process:gsub('%.[eE][xX][eE]$', '')",
         "    if idle_shells[process:lower()] then",
         "      process = ''",
         "    end",
-        "    local label = dir",
-        "    if process ~= '' then",
-        "      label = process .. '|' .. dir",
+        "    local prog_tag = ''",
+        "    local ok_pr, prog = pcall(function() return pane.progress end)",
+        "    if ok_pr and prog and prog ~= 'None' then",
+        "      if type(prog) == 'table' and prog.Percentage then",
+        "        prog_tag = string.format('%d%% ', prog.Percentage)",
+        "      elseif type(prog) == 'table' and prog.Error then",
+        "        prog_tag = string.format('!%d%% ', prog.Error)",
+        "      elseif prog == 'Indeterminate' then",
+        "        prog_tag = '~ '",
+        "      end",
         "    end",
-        "    label = format_fixed(label, TAB_TITLE_LEN)",
-        "    return index, label, process, dir",
+        "    local n_panes = type(tab.panes) == 'table' and #tab.panes or 1",
+        "    local split_tag = n_panes > 1 and (split_sup[n_panes] or ('×' .. tostring(n_panes))) or ''",
+        "    local zoom_tag = pane.is_zoomed and '🔍' or ''",
+        "    local meta = split_tag .. zoom_tag",
+        "    local manual = (tab.tab_title and #tab.tab_title > 0) and tab.tab_title or nil",
+        "    local raw_label = manual or (process ~= '' and (process .. '|' .. dir) or dir)",
+        "    local body_len = math.max(2, TAB_TITLE_LEN - wezterm.column_width(meta))",
+        "    local label = format_fixed(prog_tag .. raw_label, body_len) .. meta",
+        "    return index, label, process, dir, prog_tag",
         "  end",
         "",
     ])
@@ -1778,8 +2053,10 @@ def generate_lua_for_theme(
     for p in palette:
         act_s = p.get("active_sym", "⚡ ➜ ").replace("\\", "\\\\").replace("'", "\\'")
         inact_s = p.get("inactive_sym", " 🔘").replace("\\", "\\\\").replace("'", "\\'")
+        h_bg, h_fg = _hover_pair(p["bg"], p["fg"])
         palette_entries.append(
-            f"    {{ bg = '{p['bg']}', fg = '{p['fg']}', active_sym = '{act_s}', inactive_sym = '{inact_s}' }},"
+            f"    {{ bg = '{p['bg']}', fg = '{p['fg']}', hover_bg = '{h_bg}', hover_fg = '{h_fg}', "
+            f"active_sym = '{act_s}', inactive_sym = '{inact_s}' }},"
         )
 
     lua.extend([
@@ -1817,6 +2094,8 @@ def generate_lua_for_theme(
             "    local index, label, process, dir = get_title_info(tab)",
             "    local is_act = tab.is_active",
             "    local c = palette[(tab.tab_index % #palette) + 1]",
+            "    local bg = (hover and not is_act) and c.hover_bg or c.bg",
+            "    local fg = (hover and not is_act) and c.hover_fg or c.fg",
             f"    local next_bg = '{bg_bar}'",
             "    if tabs and tab.tab_index + 1 < #tabs then",
             "      local next_tab = tabs[tab.tab_index + 2]",
@@ -1825,14 +2104,123 @@ def generate_lua_for_theme(
             "    end",
             "    local text = is_act and (c.active_sym .. index) or (index .. c.inactive_sym)",
             "    return wezterm.format {",
-            "      { Background = { Color = c.bg } },",
-            "      { Foreground = { Color = c.fg } },",
+            "      { Background = { Color = bg } },",
+            "      { Foreground = { Color = fg } },",
             "      { Attribute = { Intensity = is_act and 'Bold' or 'Normal' } },",
             "      { Attribute = { Underline = is_act and 'Single' or 'None' } },",
             "      { Text = ' ' .. text .. ' ' .. label .. ' ' },",
             "      { Background = { Color = next_bg } },",
-            "      { Foreground = { Color = c.bg } },",
+            "      { Foreground = { Color = bg } },",
             f"      {{ Text = '{sep}' }},",
+            "    }",
+            "  end)",
+        ])
+    elif style == "adaptive_gradient":
+        lua.extend([
+            "  wezterm.on('format-tab-title', function(tab, tabs, panes, cfg, hover, max_width)",
+            "    local index, label, process, dir = get_title_info(tab)",
+            "    local is_act = tab.is_active",
+            "    local total = math.max(tabs and #tabs or 1, 2)",
+            "    local rp = cfg and cfg.resolved_palette or nil",
+            "    local ansi = rp and rp.ansi or nil",
+            "    local from_hex = (ansi and (ansi[5] or ansi[2])) or palette[1].bg",
+            "    local to_hex = (ansi and (ansi[6] or ansi[7])) or palette[#palette].bg",
+            f"    local bar_hex = (rp and rp.tab_bar and rp.tab_bar.background) or (rp and rp.background) or '{bg_bar}'",
+            "    local ok_g, grad = pcall(function()",
+            "      return wezterm.color.gradient(",
+            "        { orientation = 'Horizontal', colors = { tostring(from_hex), tostring(to_hex) }, blend = 'Oklab' },",
+            "        total",
+            "      )",
+            "    end)",
+            "    local c_def = palette[(tab.tab_index % #palette) + 1]",
+            "    local cur_col = (ok_g and grad and grad[tab.tab_index + 1]) or nil",
+            "    local bg = cur_col and tostring(cur_col) or c_def.bg",
+            "    local fg = c_def.fg",
+            "    if cur_col then",
+            "      if hover and not is_act then",
+            "        cur_col = cur_col:lighten(0.12)",
+            "        bg = tostring(cur_col)",
+            "      elseif not is_act then",
+            "        cur_col = cur_col:darken(0.16)",
+            "        bg = tostring(cur_col)",
+            "      end",
+            "      local white = wezterm.color.parse('#ffffff')",
+            "      local dark = wezterm.color.parse('#111827')",
+            "      fg = (cur_col:contrast_ratio(white) >= cur_col:contrast_ratio(dark)) and '#ffffff' or '#111827'",
+            "    elseif hover and not is_act then",
+            "      bg = c_def.hover_bg",
+            "      fg = c_def.hover_fg",
+            "    end",
+            "    local next_bg = tostring(bar_hex)",
+            "    if tabs and tab.tab_index + 1 < #tabs then",
+            "      local next_idx = tab.tab_index + 2",
+            "      local next_tab = tabs[next_idx]",
+            "      local next_col = (ok_g and grad and grad[next_idx]) or nil",
+            "      if next_col then",
+            "        if not next_tab.is_active then",
+            "          next_col = next_col:darken(0.16)",
+            "        end",
+            "        next_bg = tostring(next_col)",
+            "      else",
+            "        next_bg = palette[(next_tab.tab_index % #palette) + 1].bg",
+            "      end",
+            "    end",
+            "    local text = is_act and (c_def.active_sym .. index) or (index .. c_def.inactive_sym)",
+            "    return wezterm.format {",
+            "      { Background = { Color = bg } },",
+            "      { Foreground = { Color = fg } },",
+            "      { Attribute = { Intensity = is_act and 'Bold' or 'Normal' } },",
+            "      { Attribute = { Underline = is_act and 'Single' or 'None' } },",
+            "      { Text = ' ' .. text .. ' ' .. label .. ' ' },",
+            "      { Background = { Color = next_bg } },",
+            "      { Foreground = { Color = bg } },",
+            "      { Text = '\\u{e0b0}' },",
+            "    }",
+            "  end)",
+        ])
+    elif style == "workspace_color":
+        muted_bg = t.get("muted_bg", "#1b1f2b")
+        muted_fg = t.get("muted_fg", "#a3adc2")
+        hover_muted, _ = _hover_pair(muted_bg, muted_fg)
+        lua.extend([
+            "  local function workspace_slot(name)",
+            "    local h = 0",
+            "    for i = 1, #name do",
+            "      h = (h * 31 + name:byte(i)) % 2147483648",
+            "    end",
+            "    return (h % #palette) + 1",
+            "  end",
+            "",
+            "  wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)",
+            "    local index, label, process, dir = get_title_info(tab)",
+            "    local ws = 'default'",
+            "    local ok_ws, res_ws = pcall(function()",
+            "      if tab.window_id and wezterm.mux and wezterm.mux.get_window then",
+            "        local mw = wezterm.mux.get_window(tab.window_id)",
+            "        if mw and mw.get_workspace then return mw:get_workspace() end",
+            "      end",
+            "      return wezterm.mux and wezterm.mux.get_active_workspace and wezterm.mux.get_active_workspace() or nil",
+            "    end)",
+            "    if ok_ws and type(res_ws) == 'string' and res_ws ~= '' then ws = res_ws end",
+            "    local c = palette[workspace_slot(ws)]",
+            "    if tab.is_active then",
+            "      local ws_short = #ws > 8 and (ws:sub(1, 7) .. '…') or ws",
+            "      return wezterm.format {",
+            "        { Background = { Color = c.bg } },",
+            "        { Foreground = { Color = c.fg } },",
+            "        { Attribute = { Intensity = 'Bold' } },",
+            "        { Text = ' ' .. c.active_sym .. '[' .. ws_short .. '] ' .. index .. ' ' .. label .. ' ✕ ' },",
+            "      }",
+            "    end",
+            f"    local ibg = hover and '{hover_muted}' or '{muted_bg}'",
+            "    return wezterm.format {",
+            "      { Background = { Color = ibg } },",
+            "      { Foreground = { Color = c.bg } },",
+            "      { Attribute = { Intensity = 'Bold' } },",
+            "      { Text = ' ' .. index },",
+            "      { Attribute = { Intensity = 'Normal' } },",
+            f"      {{ Foreground = {{ Color = '{muted_fg}' }} }},",
+            "      { Text = c.inactive_sym .. ' ' .. label .. ' ✕ ' },",
             "    }",
             "  end)",
         ])
@@ -1853,9 +2241,11 @@ def generate_lua_for_theme(
             "    local icon = get_icon(process)",
             "    local is_act = tab.is_active",
             "    local c = palette[(tab.tab_index % #palette) + 1]",
+            "    local bg = (hover and not is_act) and c.hover_bg or c.bg",
+            "    local fg = (hover and not is_act) and c.hover_fg or c.fg",
             "    return wezterm.format {",
-            "      { Background = { Color = c.bg } },",
-            "      { Foreground = { Color = c.fg } },",
+            "      { Background = { Color = bg } },",
+            "      { Foreground = { Color = fg } },",
             "      { Attribute = { Intensity = is_act and 'Bold' or 'Normal' } },",
             "      { Attribute = { Underline = is_act and 'Single' or 'None' } },",
             "      { Text = ' ' .. icon .. index .. ' ' .. label .. ' ✕ ' },",
@@ -1870,9 +2260,11 @@ def generate_lua_for_theme(
             "    local num = circles[index] or tostring(index)",
             "    local is_act = tab.is_active",
             "    local c = palette[(tab.tab_index % #palette) + 1]",
+            "    local bg = (hover and not is_act) and c.hover_bg or c.bg",
+            "    local fg = (hover and not is_act) and c.hover_fg or c.fg",
             "    return wezterm.format {",
-            "      { Background = { Color = c.bg } },",
-            "      { Foreground = { Color = c.fg } },",
+            "      { Background = { Color = bg } },",
+            "      { Foreground = { Color = fg } },",
             "      { Attribute = { Intensity = is_act and 'Bold' or 'Normal' } },",
             "      { Attribute = { Underline = is_act and 'Single' or 'None' } },",
             "      { Text = ' ' .. num .. ' ' .. label .. ' ✕ ' },",
@@ -1885,10 +2277,12 @@ def generate_lua_for_theme(
             "    local index, label, process, dir = get_title_info(tab)",
             "    local is_act = tab.is_active",
             "    local c = palette[(tab.tab_index % #palette) + 1]",
+            "    local bg = (hover and not is_act) and c.hover_bg or c.bg",
+            "    local fg = (hover and not is_act) and c.hover_fg or c.fg",
             "    local dot = is_act and c.active_sym or c.inactive_sym",
             "    return wezterm.format {",
-            "      { Background = { Color = c.bg } },",
-            "      { Foreground = { Color = c.fg } },",
+            "      { Background = { Color = bg } },",
+            "      { Foreground = { Color = fg } },",
             "      { Attribute = { Intensity = is_act and 'Bold' or 'Normal' } },",
             "      { Attribute = { Underline = is_act and 'Single' or 'None' } },",
             "      { Text = ' ' .. dot .. index .. ' ' .. label .. ' ✕ ' },",
@@ -1901,10 +2295,12 @@ def generate_lua_for_theme(
             "    local index, label, process, dir = get_title_info(tab)",
             "    local is_act = tab.is_active",
             "    local c = palette[(tab.tab_index % #palette) + 1]",
+            "    local bg = (hover and not is_act) and c.hover_bg or c.bg",
+            "    local fg = (hover and not is_act) and c.hover_fg or c.fg",
             "    local marker = is_act and '*' or '-'",
             "    return wezterm.format {",
-            "      { Background = { Color = c.bg } },",
-            "      { Foreground = { Color = c.fg } },",
+            "      { Background = { Color = bg } },",
+            "      { Foreground = { Color = fg } },",
             "      { Attribute = { Intensity = is_act and 'Bold' or 'Normal' } },",
             "      { Attribute = { Underline = is_act and 'Single' or 'None' } },",
             "      { Text = ' [' .. marker .. ' ' .. string.format('%02d', index) .. ':' .. label:upper() .. ' ' .. marker .. '] ' },",
@@ -1918,8 +2314,9 @@ def generate_lua_for_theme(
             "    local is_act = tab.is_active",
             "    local c = palette[(tab.tab_index % #palette) + 1]",
             "    local prefix = is_act and '▌ ' or '  '",
+            "    local ibg = hover and '#262936' or '#1a1c23'",
             "    return wezterm.format {",
-            "      { Background = { Color = is_act and c.bg or '#1a1c23' } },",
+            "      { Background = { Color = is_act and c.bg or ibg } },",
             "      { Foreground = { Color = is_act and c.fg or c.bg } },",
             "      { Attribute = { Intensity = is_act and 'Bold' or 'Normal' } },",
             "      { Attribute = { Underline = is_act and 'Single' or 'None' } },",
@@ -1933,8 +2330,9 @@ def generate_lua_for_theme(
             "    local index, label, process, dir = get_title_info(tab)",
             "    local is_act = tab.is_active",
             "    local c = palette[(tab.tab_index % #palette) + 1]",
+            "    local ibg = hover and '#212534' or '#151720'",
             "    return wezterm.format {",
-            "      { Background = { Color = is_act and c.bg or '#151720' } },",
+            "      { Background = { Color = is_act and c.bg or ibg } },",
             "      { Foreground = { Color = is_act and c.fg or c.bg } },",
             "      { Attribute = { Intensity = is_act and 'Bold' or 'Normal' } },",
             "      { Attribute = { Underline = is_act and 'Single' or 'None' } },",
@@ -1943,13 +2341,15 @@ def generate_lua_for_theme(
             "  end)",
         ])
     elif style == "ghost":
+        hover_bar, _ = _hover_pair(bg_bar, "#ffffff")
         lua.extend([
             "  wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)",
             "    local index, label, process, dir = get_title_info(tab)",
             "    local is_act = tab.is_active",
             "    local c = palette[(tab.tab_index % #palette) + 1]",
+            f"    local ibg = hover and '{hover_bar}' or '{bg_bar}'",
             "    return wezterm.format {",
-            f"      {{ Background = {{ Color = is_act and '#252836' or '{bg_bar}' }} }},",
+            "      { Background = { Color = is_act and '#252836' or ibg } },",
             "      { Foreground = { Color = c.bg } },",
             "      { Attribute = { Intensity = is_act and 'Bold' or 'Normal' } },",
             "      { Attribute = { Underline = is_act and 'Single' or 'None' } },",
@@ -1972,10 +2372,12 @@ def generate_lua_for_theme(
             "    local index, label, process, dir = get_title_info(tab)",
             "    local is_act = tab.is_active",
             "    local c = palette[project_slot(dir)]",
+            "    local bg = (hover and not is_act) and c.hover_bg or c.bg",
+            "    local fg = (hover and not is_act) and c.hover_fg or c.fg",
             "    local text = is_act and (c.active_sym .. index) or (index .. c.inactive_sym)",
             "    return wezterm.format {",
-            "      { Background = { Color = c.bg } },",
-            "      { Foreground = { Color = c.fg } },",
+            "      { Background = { Color = bg } },",
+            "      { Foreground = { Color = fg } },",
             "      { Attribute = { Intensity = is_act and 'Bold' or 'Normal' } },",
             "      { Attribute = { Underline = is_act and 'Single' or 'None' } },",
             "      { Text = ' ' .. text .. ' ' .. label .. ' ✕ ' },",
@@ -1989,12 +2391,14 @@ def generate_lua_for_theme(
             "  local not_busy = { ssh = true, shpool = true, mosh = true, ['mosh-client'] = true }",
             "",
             "  wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)",
-            "    local index, label, process, dir = get_title_info(tab)",
+            "    local index, label, process, dir, prog_tag = get_title_info(tab)",
             "    local is_act = tab.is_active",
             "    local c = palette[(tab.tab_index % #palette) + 1]",
+            "    local bg = (hover and not is_act) and c.hover_bg or c.bg",
+            "    local fg = (hover and not is_act) and c.hover_fg or c.fg",
             "    local items = {",
-            "      { Background = { Color = c.bg } },",
-            "      { Foreground = { Color = c.fg } },",
+            "      { Background = { Color = bg } },",
+            "      { Foreground = { Color = fg } },",
             "      { Attribute = { Intensity = is_act and 'Bold' or 'Normal' } },",
             "      { Attribute = { Underline = is_act and 'Single' or 'None' } },",
             "      { Text = ' ' },",
@@ -2002,9 +2406,9 @@ def generate_lua_for_theme(
             "    if not is_act and tab.active_pane.has_unseen_output then",
             f"      table.insert(items, {{ Foreground = {{ Color = '{alert}' }} }})",
             "      table.insert(items, { Text = '● ' })",
-            "      table.insert(items, { Foreground = { Color = c.fg } })",
+            "      table.insert(items, { Foreground = { Color = fg } })",
             "    end",
-            "    if process ~= '' and not not_busy[process:lower()] then",
+            "    if prog_tag == '' and process ~= '' and not not_busy[process:lower()] then",
             "      table.insert(items, { Text = '⏳ ' })",
             "    end",
             "    local text = is_act and (c.active_sym .. index) or (index .. c.inactive_sym)",
@@ -2015,6 +2419,7 @@ def generate_lua_for_theme(
     elif style == "mono_accent":
         muted_bg = t.get("muted_bg", "#303134")
         muted_fg = t.get("muted_fg", "#9aa0a6")
+        hover_muted, _ = _hover_pair(muted_bg, muted_fg)
         lua.extend([
             "  wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)",
             "    local index, label, process, dir = get_title_info(tab)",
@@ -2027,8 +2432,9 @@ def generate_lua_for_theme(
             "        { Text = ' ' .. c.active_sym .. index .. ' ' .. label .. ' ✕ ' },",
             "      }",
             "    end",
+            f"    local ibg = hover and '{hover_muted}' or '{muted_bg}'",
             "    return wezterm.format {",
-            f"      {{ Background = {{ Color = '{muted_bg}' }} }},",
+            "      { Background = { Color = ibg } },",
             "      { Foreground = { Color = c.bg } },",
             "      { Attribute = { Intensity = 'Bold' } },",
             "      { Text = ' ' .. index },",
@@ -2046,8 +2452,9 @@ def generate_lua_for_theme(
             "    local c = palette[(tab.tab_index % #palette) + 1]",
             "    local frame = is_act and '【' or '〔'",
             "    local frame_end = is_act and '】' or '〕'",
+            "    local ibg = hover and '#232636' or '#161822'",
             "    return wezterm.format {",
-            "      { Background = { Color = is_act and c.bg or '#161822' } },",
+            "      { Background = { Color = is_act and c.bg or ibg } },",
             "      { Foreground = { Color = is_act and c.fg or c.bg } },",
             "      { Attribute = { Intensity = is_act and 'Bold' or 'Normal' } },",
             "      { Attribute = { Underline = is_act and 'Single' or 'None' } },",
@@ -2070,9 +2477,11 @@ def generate_lua_for_theme(
             "        { Text = ' ' .. c.active_sym .. index .. ' ' .. label .. ' ✕ ' },",
             "      }",
             "    else",
+            "      local bg = hover and c.hover_bg or c.bg",
+            "      local fg = hover and c.hover_fg or c.fg",
             "      return wezterm.format {",
-            "        { Background = { Color = c.bg } },",
-            "        { Foreground = { Color = c.fg } },",
+            "        { Background = { Color = bg } },",
+            "        { Foreground = { Color = fg } },",
             "        { Text = ' ' .. index .. c.inactive_sym .. ' ' .. label .. ' ✕ ' },",
             "      }",
             "    end",

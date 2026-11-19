@@ -195,15 +195,35 @@ def _print_current_status() -> None:
         if syms:
             print(f"  {BOLD}Symbols:{RESET}       {MAGENTA}Custom{RESET} {DIM}{syms}{RESET}")
         print(f"  {BOLD}Preview:{RESET}       {render_4_tab_bar(apply_symbols(t, syms), tab_title_len=tlen)}")
+    lig_state = "Off" if app.get("font_ligatures") is False else "On"
     print(
         f"  {BOLD}Editor Font:{RESET}   {app.get('font_family') or 'WezTerm Default'} "
-        f"({app.get('font_weight') or 'Regular'}, {app.get('font_size') or 13}pt)"
+        f"({app.get('font_weight') or 'Regular'}, {app.get('font_size') or 13}pt · Ligatures: {lig_state})"
     )
     print(
         f"  {BOLD}Tab Font:{RESET}      {app.get('tab_font_family') or 'WezTerm Default'} "
         f"({app.get('tab_font_weight') or 'Medium'}, {app.get('tab_font_size') or 11}pt)"
     )
-    print(f"  {BOLD}Color Scheme:{RESET}  {app.get('color_scheme') or 'Default'}")
+    light_info = f" (Light: {app['color_scheme_light']})" if app.get("color_scheme_light") else ""
+    print(f"  {BOLD}Color Scheme:{RESET}  {app.get('color_scheme') or 'Default'}{light_info}")
+    extras: list[str] = []
+    if app.get("inactive_pane_brightness") is not None:
+        extras.append(f"Inactive dim: {app['inactive_pane_brightness']:g}")
+    if app.get("background_gradient"):
+        extras.append("Oklab gradient: On")
+    if app.get("accent_border"):
+        extras.append("1px accent border: On")
+    if app.get("status_bar") is not None:
+        extras.append(f"Status bar: {'On' if app['status_bar'] else 'Off'}")
+    if app.get("tab_max_width") is not None:
+        extras.append(f"Max tab width: {app['tab_max_width']}c")
+    if app.get("use_fancy_tab_bar") is not None:
+        extras.append(f"Tab bar: {'Fancy' if app['use_fancy_tab_bar'] else 'Retro'}")
+    if app.get("open_in_editor") is not None or app.get("editor_cmd"):
+        ed_lbl = app.get("editor_cmd") or "$EDITOR"
+        extras.append(f"Click-to-editor: {'Off' if app.get('open_in_editor') is False else ed_lbl}")
+    if extras:
+        print(f"  {BOLD}Window Extras:{RESET} {' · '.join(extras)}")
     if not st["initialized"]:
         print(f"\n  {YELLOW}⚡ Tip: run 'wezterm-theme init' to connect WezTerm Studio to your wezterm.lua.{RESET}")
     print()
@@ -233,10 +253,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         if sub == "import":
             return _cmd_import(rest)
 
+    total_themes = len(THEMES)
     parser = argparse.ArgumentParser(
         prog="wezterm-theme",
         description=(
-            "WezTerm Studio — Cross-platform Tab Theme (60), Symbol, Font & Appearance "
+            f"WezTerm Studio — Cross-platform Tab Theme ({total_themes}), Symbol, Font & Appearance "
             "customizer for WezTerm.\n\n"
             "Subcommands:\n"
             "  init        Connect wezterm-theme to your wezterm.lua\n"
@@ -253,8 +274,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("-V", "--version", action="version", version=f"%(prog)s {__version__}")
 
     # Tab theme flags
-    parser.add_argument("-l", "--list", action="store_true", help="List all 60 tab bar themes in the terminal")
-    parser.add_argument("-s", "--set", metavar="THEME", help="Apply a tab theme by ID (1-60), slug, or name")
+    parser.add_argument("-l", "--list", action="store_true", help=f"List all {total_themes} tab bar themes in the terminal")
+    parser.add_argument("-s", "--set", metavar="THEME", help=f"Apply a tab theme by ID (1-{total_themes}), slug, or name")
     parser.add_argument("-t", "--tab-len", type=int, metavar="CHARS", help="Fixed tab title character width (4-60)")
     parser.add_argument("-r", "--random", action="store_true", help="Apply a random tab bar theme")
     parser.add_argument("-c", "--current", action="store_true", help="Show active tab theme, symbols, fonts, and colors")
@@ -266,12 +287,65 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--font", metavar="FAMILY", help="Set the main terminal (Editor) font family")
     parser.add_argument("--weight", metavar="WEIGHT", help="Editor font weight (e.g. Regular, Medium, Bold)")
     parser.add_argument("--size", type=float, metavar="PT", help="Editor font size in points (e.g. 13.5)")
+    parser.add_argument(
+        "--ligatures",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable programming font ligatures (calt/clig/liga)",
+    )
     parser.add_argument("--tab-font", metavar="FAMILY", help="Set the tab bar font family")
     parser.add_argument("--tab-weight", metavar="WEIGHT", help="Tab bar font weight (e.g. Medium, Bold)")
     parser.add_argument("--tab-size", type=float, metavar="PT", help="Tab bar font size in points (e.g. 11.5)")
+    parser.add_argument("--tab-max-width", type=int, metavar="COLS", help="Max tab width in columns (16-120, or 0 for auto)")
+    parser.add_argument(
+        "--fancy-tabs",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override theme tab bar style (Fancy pill frame vs Retro flat cells)",
+    )
+    parser.add_argument(
+        "--editor",
+        metavar="CMD",
+        help="Set $EDITOR command for stack-trace & output openers (e.g. nvim, hx, code, or 'Default')",
+    )
+    parser.add_argument(
+        "--open-in-editor",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable clicking file:line stack traces to open in $EDITOR (+ GitHub owner/repo#123 links)",
+    )
     parser.add_argument("--scheme", metavar="NAME", help="Set WezTerm color scheme (e.g. 'Catppuccin Mocha')")
+    parser.add_argument(
+        "--light-scheme",
+        metavar="NAME",
+        help="Set companion color scheme for OS Light mode (use 'Default' to clear)",
+    )
     parser.add_argument("--opacity", type=float, metavar="0.1-1.0", help="Window background opacity (e.g. 0.92)")
     parser.add_argument("--padding", type=int, metavar="PX", help="Inner window padding in pixels (e.g. 10)")
+    parser.add_argument(
+        "--dim-inactive",
+        type=float,
+        metavar="0.4-1.0",
+        help="Brightness for inactive split panes (e.g. 0.78; 1.0 disables dimming)",
+    )
+    parser.add_argument(
+        "--gradient",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable subtle Oklab radial window background gradient",
+    )
+    parser.add_argument(
+        "--border",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable 1px theme-accented window frame border",
+    )
+    parser.add_argument(
+        "--status-bar",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable Studio right-status bar (mode pill, workspace/mux, git, battery, clock)",
+    )
     parser.add_argument("--list-fonts", action="store_true", help="List all installed monospace and Nerd Fonts")
     parser.add_argument("--list-schemes", action="store_true", help="List built-in WezTerm color schemes")
 
@@ -292,6 +366,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     if args.opacity is not None and not (0.1 <= args.opacity <= 1.0):
         print(f"{RED}Error: --opacity must be between 0.1 and 1.0.{RESET}", file=sys.stderr)
+        return 1
+    if args.dim_inactive is not None and not (0.4 <= args.dim_inactive <= 1.0):
+        print(f"{RED}Error: --dim-inactive must be between 0.4 and 1.0.{RESET}", file=sys.stderr)
+        return 1
+    if args.tab_max_width is not None and args.tab_max_width != 0 and not (16 <= args.tab_max_width <= 120):
+        print(f"{RED}Error: --tab-max-width must be between 16 and 120 (or 0 to reset to auto).{RESET}", file=sys.stderr)
         return 1
 
     if args.backups:
@@ -351,18 +431,38 @@ def main(argv: Sequence[str] | None = None) -> int:
         app_updates["font_weight"] = args.weight
     if args.size is not None:
         app_updates["font_size"] = args.size
+    if args.ligatures is not None:
+        app_updates["font_ligatures"] = args.ligatures
     if args.tab_font:
         app_updates["tab_font_family"] = args.tab_font
     if args.tab_weight:
         app_updates["tab_font_weight"] = args.tab_weight
     if args.tab_size is not None:
         app_updates["tab_font_size"] = args.tab_size
+    if args.tab_max_width is not None:
+        app_updates["tab_max_width"] = args.tab_max_width
+    if args.fancy_tabs is not None:
+        app_updates["use_fancy_tab_bar"] = args.fancy_tabs
+    if args.editor is not None:
+        app_updates["editor_cmd"] = args.editor
+    if args.open_in_editor is not None:
+        app_updates["open_in_editor"] = args.open_in_editor
     if args.scheme is not None:
         app_updates["color_scheme"] = args.scheme
+    if args.light_scheme is not None:
+        app_updates["color_scheme_light"] = args.light_scheme
     if args.opacity is not None:
         app_updates["window_opacity"] = args.opacity
     if args.padding is not None:
         app_updates["window_padding"] = args.padding
+    if args.dim_inactive is not None:
+        app_updates["inactive_pane_brightness"] = args.dim_inactive
+    if args.gradient is not None:
+        app_updates["background_gradient"] = args.gradient
+    if args.border is not None:
+        app_updates["accent_border"] = args.border
+    if args.status_bar is not None:
+        app_updates["status_bar"] = args.status_bar
 
     mutated = False
 
@@ -394,7 +494,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.set:
         chosen = find_theme(args.set)
         if not chosen:
-            print(f"{RED}Error: Theme '{args.set}' not found. Use --list to browse all 60 themes.{RESET}", file=sys.stderr)
+            print(
+                f"{RED}Error: Theme '{args.set}' not found. Use --list to browse all {total_themes} themes.{RESET}",
+                file=sys.stderr,
+            )
             return 1
         ok, _, err = apply_theme(chosen, tab_title_len=args.tab_len, appearance_updates=app_updates or None)
         if not ok:
