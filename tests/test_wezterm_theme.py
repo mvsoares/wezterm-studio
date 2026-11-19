@@ -36,6 +36,7 @@ from wezterm_theme.core import (
     uninstall_wezterm_config,
     validate_theme_lua,
 )
+from wezterm_theme.fonts import get_color_scheme_palettes
 from wezterm_theme.paths import find_wezterm_cmd, get_cache_dir, get_platform_name, resolve_wezterm_paths
 from wezterm_theme.server import create_server
 from wezterm_theme.themes import (
@@ -165,10 +166,12 @@ class ThemeCatalogAndSymbolsTests(unittest.TestCase):
                 "local last_cb = nil",
                 "local last_status_cb = nil",
                 "local last_open_uri_cb = nil",
+                "local last_palette_cb = nil",
                 "wezterm.on = function(ev, fn)",
                 "  if ev == 'format-tab-title' then last_cb = fn",
                 "  elseif ev == 'update-status' then last_status_cb = fn",
-                "  elseif ev == 'open-uri' then last_open_uri_cb = fn end",
+                "  elseif ev == 'open-uri' then last_open_uri_cb = fn",
+                "  elseif ev == 'augment-command-palette' then last_palette_cb = fn end",
                 "end",
                 "local mock_tabs = {",
                 "  {",
@@ -195,6 +198,28 @@ class ThemeCatalogAndSymbolsTests(unittest.TestCase):
                 "      progress = 'Indeterminate',",
                 "    },",
                 "  },",
+                "  {",
+                "    tab_index = 2, is_active = false, tab_title = '',",
+                "    panes = { {} },",
+                "    active_pane = {",
+                "      current_working_dir = 'file:///home/dev/ai-agent',",
+                "      user_vars = { WEZTERM_PROG = 'claude --continue' },",
+                "      foreground_process_name = '/usr/local/bin/claude',",
+                "      is_zoomed = false,",
+                "      has_unseen_output = true,",
+                "    },",
+                "  },",
+                "  {",
+                "    tab_index = 3, is_active = true, tab_title = '',",
+                "    panes = { {} },",
+                "    active_pane = {",
+                "      current_working_dir = 'file:///home/dev/infra',",
+                "      user_vars = { WEZTERM_PROG = 'ssh root@prod-db-01' },",
+                "      foreground_process_name = '/usr/bin/ssh',",
+                "      is_zoomed = false,",
+                "      has_unseen_output = false,",
+                "    },",
+                "  },",
                 "}",
                 "local mock_cfg = {",
                 "  resolved_palette = {",
@@ -202,6 +227,7 @@ class ThemeCatalogAndSymbolsTests(unittest.TestCase):
                 "    ansi = { '#45475a', '#f38ba8', '#a6e3a1', '#f9e2af', '#89b4fa', '#f5c2e7', '#94e2d5', '#bac2de' },",
                 "  },",
                 "}",
+                "local last_mod = nil",
             ]
             for t in THEMES:
                 st = t.get("style", "pills")
@@ -221,35 +247,62 @@ class ThemeCatalogAndSymbolsTests(unittest.TestCase):
                     "last_cb = nil",
                     "last_status_cb = nil",
                     "last_open_uri_cb = nil",
-                    f"dofile([==[{mod_file.as_posix()}]==]).apply({{}}, wezterm)",
+                    "last_palette_cb = nil",
+                    f"last_mod = dofile([==[{mod_file.as_posix()}]==])",
+                    "last_mod.apply({}, wezterm)",
                     f"assert(type(last_cb) == 'function', 'missing callback for {st}')",
                     f"assert(type(last_status_cb) == 'function', 'missing update-status callback for {st}')",
                     f"assert(type(last_open_uri_cb) == 'function', 'missing open-uri callback for {st}')",
+                    f"assert(type(last_palette_cb) == 'function', 'missing augment-command-palette callback for {st}')",
                     "local out1 = last_cb(mock_tabs[1], mock_tabs, mock_tabs[1].panes, mock_cfg, false, 48)",
                     "local out2 = last_cb(mock_tabs[2], mock_tabs, mock_tabs[2].panes, mock_cfg, true, 48)",
+                    "local out_agent = last_cb(mock_tabs[3], mock_tabs, mock_tabs[3].panes, mock_cfg, false, 48)",
+                    "local out_prod = last_cb(mock_tabs[4], mock_tabs, mock_tabs[4].panes, mock_cfg, false, 48)",
                     f"assert(type(out1) == 'string' and out1:find('42%%') and out1:lower():find('deploy') and out1:find('²') and out1:find('🔍'), 'bad active output for {st}: ' .. tostring(out1))",
                     f"assert(type(out2) == 'string' and out2:find('~ ') and out2:lower():find('nvim|') and out2:find('³'), 'bad hover output for {st}: ' .. tostring(out2))",
+                    f"assert(type(out_agent) == 'string' and out_agent:find('🤖●'), 'missing AI agent radar for {st}: ' .. tostring(out_agent))",
+                    f"assert(type(out_prod) == 'string' and out_prod:find('220:38:38'), 'missing SSH prod danger tint for {st}: ' .. tostring(out_prod))",
                 ])
             harness_lines.extend([
                 "local captured_status = nil",
                 "local spawned_action = nil",
+                "local captured_toast = nil",
+                "local win_overrides = {}",
                 "local mock_win = {",
                 "  leader_is_active = function() return true end,",
                 "  active_key_table = function() return nil end,",
                 "  active_workspace = function() return 'prod' end,",
                 "  set_right_status = function(_, s) captured_status = s end,",
                 "  perform_action = function(_, act_obj) spawned_action = act_obj end,",
+                "  toast_notification = function(_, title, body) captured_toast = title .. ':' .. body end,",
+                "  get_config_overrides = function() return win_overrides end,",
+                "  set_config_overrides = function(_, ov) win_overrides = ov end,",
+                "  effective_config = function() return { font_size = 13.0 } end,",
+                "  mux_window = function() return {",
+                "    tabs_with_info = function() return {",
+                "      { is_active = false, tab = { tab_id = function() return 99 end, active_pane = function() return {",
+                "        get_user_vars = function() return { WEZTERM_PROG = 'claude' } end,",
+                "        get_foreground_process_name = function() return '/usr/bin/claude' end,",
+                "        has_unseen_output = function() return true end,",
+                "      } end } },",
+                "    } end,",
+                "  } end,",
                 "}",
                 "local mock_pane = {",
-                "  get_dimensions = function() return { cols = 140 } end,",
+                "  get_dimensions = function() return { cols = 150 } end,",
                 "  get_domain_name = function() return 'ssh-box' end,",
                 "  get_metadata = function() return { since_last_response_ms = 24 } end,",
+                "  get_user_vars = function() return { WEZTERM_PROG = 'ssh root@prod-api-01' } end,",
+                "  get_foreground_process_name = function() return '/usr/bin/ssh' end,",
                 f"  get_current_working_dir = function() return 'file://{SRC_DIR.parent.as_posix()}' end,",
                 "}",
                 "last_status_cb(mock_win, mock_pane)",
-                "assert(type(captured_status) == 'string' and captured_status:find('LEADER') and captured_status:find('prod') and captured_status:find('ssh%-box 24ms'), 'bad status bar output: ' .. tostring(captured_status))",
+                "assert(type(captured_status) == 'string' and captured_status:find('LEADER') and captured_status:find('PROD:root@prod%-api%-01') and captured_status:find('ssh%-box 24ms'), 'bad status bar output: ' .. tostring(captured_status))",
+                "assert(type(captured_toast) == 'string' and captured_toast:find('claude'), 'missing AI agent toast: ' .. tostring(captured_toast))",
                 "local intercepted = last_open_uri_cb(mock_win, mock_pane, 'editfile://src/wezterm_theme/core.py:42')",
                 "assert(intercepted == false and spawned_action ~= nil, 'open-uri failed to intercept editfile://')",
+                "local pal_entries = last_palette_cb(mock_win, mock_pane)",
+                "assert(type(pal_entries) == 'table' and #pal_entries == 5, 'expected 5 command palette entries, got ' .. tostring(#pal_entries))",
             ])
             harness_lines.append("wezterm.on = orig_on")
             harness_lines.append("return wezterm.config_builder()")
@@ -414,6 +467,9 @@ class StandaloneAndLoaderEngineTests(unittest.TestCase):
             "editor_cmd": "hx",
             "tab_max_width": 44,
             "use_fancy_tab_bar": False,
+            "agent_indicators": False,
+            "ssh_alert": False,
+            "command_palette": False,
         })
         self.assertTrue(ok, err)
 
@@ -422,6 +478,9 @@ class StandaloneAndLoaderEngineTests(unittest.TestCase):
         self.assertEqual(saved_settings["tabs"]["theme_id"], 62)
         self.assertEqual(saved_settings["tabs"]["max_width"], 44)
         self.assertFalse(saved_settings["tabs"]["fancy"])
+        self.assertFalse(saved_settings["tabs"]["agent_indicators"])
+        self.assertFalse(saved_settings["tabs"]["ssh_alert"])
+        self.assertFalse(saved_settings["tabs"]["command_palette"])
         self.assertEqual(saved_settings["font"]["size"], 15)
         self.assertFalse(saved_settings["font"]["ligatures"])
         self.assertEqual(saved_settings["colors"]["scheme"], "Monokai Vivid")
@@ -445,6 +504,9 @@ class StandaloneAndLoaderEngineTests(unittest.TestCase):
         self.assertEqual(st_after["appearance"]["editor_cmd"], "hx")
         self.assertEqual(st_after["appearance"]["tab_max_width"], 44)
         self.assertFalse(st_after["appearance"]["use_fancy_tab_bar"])
+        self.assertFalse(st_after["appearance"]["agent_indicators"])
+        self.assertFalse(st_after["appearance"]["ssh_alert"])
+        self.assertFalse(st_after["appearance"]["command_palette"])
 
 
 class StudioHTTPServerAndCLITests(unittest.TestCase):
@@ -479,6 +541,14 @@ class StudioHTTPServerAndCLITests(unittest.TestCase):
             boot = json.loads(urllib.request.urlopen(f"{base}/api/bootstrap").read().decode("utf-8"))
             self.assertTrue(boot["ok"])
             self.assertEqual(len(boot["themes"]), 62)
+
+            schemes_resp = json.loads(urllib.request.urlopen(f"{base}/api/schemes").read().decode("utf-8"))
+            self.assertTrue(schemes_resp["ok"])
+            self.assertGreaterEqual(len(schemes_resp["palettes"]), 20)
+            sample_pal = schemes_resp["palettes"][0]
+            self.assertTrue(sample_pal["bg"].startswith("#"))
+            self.assertEqual(len(sample_pal["ansi"]), 8)
+            self.assertIn("is_dark", sample_pal)
 
             req = urllib.request.Request(
                 f"{base}/api/apply-tab-theme",
@@ -534,6 +604,9 @@ class StudioHTTPServerAndCLITests(unittest.TestCase):
                 "--no-fancy-tabs",
                 "--editor", "nvim",
                 "--open-in-editor",
+                "--no-agent-radar",
+                "--no-ssh-alert",
+                "--no-command-palette",
             ])
         self.assertEqual(rc, 0)
         st = get_current_state()
@@ -550,6 +623,16 @@ class StudioHTTPServerAndCLITests(unittest.TestCase):
         self.assertFalse(st["appearance"]["use_fancy_tab_bar"])
         self.assertEqual(st["appearance"]["editor_cmd"], "nvim")
         self.assertTrue(st["appearance"]["open_in_editor"])
+        self.assertFalse(st["appearance"]["agent_indicators"])
+        self.assertFalse(st["appearance"]["ssh_alert"])
+        self.assertFalse(st["appearance"]["command_palette"])
+
+        pals = get_color_scheme_palettes()
+        self.assertGreaterEqual(len(pals), 20)
+
+        with redirect_stdout(buf):
+            rc = cli_main(["--list-schemes", "-f", "dark catppuccin"])
+        self.assertEqual(rc, 0)
 
         with redirect_stdout(buf):
             rc = cli_main(["--current"])

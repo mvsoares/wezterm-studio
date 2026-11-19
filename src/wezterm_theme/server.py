@@ -28,7 +28,7 @@ from .core import (
     init_wezterm_config,
     restore_backup,
 )
-from .fonts import get_color_schemes, get_installed_fonts
+from .fonts import get_color_scheme_palettes, get_color_schemes, get_installed_fonts
 from .paths import has_gui_display, system_summary
 from .themes import (
     CATEGORIES,
@@ -148,7 +148,12 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
 
         if route == "/api/schemes":
             refresh = qs.get("refresh", ["0"])[0] == "1"
-            self._send_json({"ok": True, "schemes": get_color_schemes(refresh=refresh)})
+            palettes = get_color_scheme_palettes(refresh=refresh)
+            self._send_json({
+                "ok": True,
+                "schemes": [p["name"] for p in palettes],
+                "palettes": palettes,
+            })
             return
 
         if route == "/api/backups":

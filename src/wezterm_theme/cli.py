@@ -27,7 +27,7 @@ from .core import (
     uninstall_wezterm_config,
     validate_config,
 )
-from .fonts import get_color_schemes, get_installed_fonts
+from .fonts import get_color_scheme_palettes, get_color_schemes, get_installed_fonts
 from .paths import init_terminal, resolve_wezterm_paths, system_summary
 from .server import DEFAULT_PORT, run_studio_server
 from .themes import THEMES, apply_symbols, filter_themes, find_theme, get_theme_by_id
@@ -47,6 +47,7 @@ from .tui import (
     print_backups_list,
     print_list,
     render_4_tab_bar,
+    render_scheme_swatch,
     symbols_menu,
 )
 
@@ -222,6 +223,12 @@ def _print_current_status() -> None:
     if app.get("open_in_editor") is not None or app.get("editor_cmd"):
         ed_lbl = app.get("editor_cmd") or "$EDITOR"
         extras.append(f"Click-to-editor: {'Off' if app.get('open_in_editor') is False else ed_lbl}")
+    if app.get("agent_indicators") is not None:
+        extras.append(f"AI agent radar: {'On' if app['agent_indicators'] else 'Off'}")
+    if app.get("ssh_alert") is not None:
+        extras.append(f"SSH/prod alert: {'On' if app['ssh_alert'] else 'Off'}")
+    if app.get("command_palette") is not None:
+        extras.append(f"Cmd palette: {'On' if app['command_palette'] else 'Off'}")
     if extras:
         print(f"  {BOLD}Window Extras:{RESET} {' · '.join(extras)}")
     if not st["initialized"]:
@@ -346,8 +353,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=None,
         help="Enable or disable Studio right-status bar (mode pill, workspace/mux, git, battery, clock)",
     )
+    parser.add_argument(
+        "--agent-radar",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable AI coding agent indicators & background completion toasts (Claude, Gemini, Codex, Aider, etc.)",
+    )
+    parser.add_argument(
+        "--ssh-alert",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable SSH & production host (prod*, root@*) danger tinting on tabs and status bar",
+    )
+    parser.add_argument(
+        "--command-palette",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable Studio & Zen Mode actions in WezTerm's Ctrl+Shift+P Command Palette",
+    )
     parser.add_argument("--list-fonts", action="store_true", help="List all installed monospace and Nerd Fonts")
-    parser.add_argument("--list-schemes", action="store_true", help="List built-in WezTerm color schemes")
+    parser.add_argument("--list-schemes", action="store_true", help="List built-in WezTerm color schemes with TrueColor swatches")
 
     # Web Studio flags
     parser.add_argument("-w", "--web", action="store_true", help="Launch interactive WezTerm Studio in your browser")
@@ -402,12 +427,26 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.list_schemes:
         schemes = get_color_schemes()
+        pal_map = {p["name"]: p for p in get_color_scheme_palettes()}
         q = args.filter.lower().strip()
-        if q:
-            schemes = [s for s in schemes if q in s.lower()]
+        only_dark: bool | None = None
+        if q == "dark" or q.startswith("dark "):
+            only_dark = True
+            q = q[4:].strip()
+        elif q == "light" or q.startswith("light "):
+            only_dark = False
+            q = q[5:].strip()
+        if q or only_dark is not None:
+            schemes = [
+                s
+                for s in schemes
+                if (not q or q in s.lower())
+                and (only_dark is None or pal_map.get(s, {}).get("is_dark", True) is only_dark)
+            ]
         print(f"\n{BOLD}{CYAN}=== WEZTERM COLOR SCHEMES ({len(schemes)}) ==={RESET}\n")
         for s in schemes:
-            print(f"  • {s}")
+            sw = render_scheme_swatch(pal_map.get(s))
+            print(f"  {sw}  {s}")
         print()
         return 0
 
@@ -463,6 +502,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         app_updates["accent_border"] = args.border
     if args.status_bar is not None:
         app_updates["status_bar"] = args.status_bar
+    if args.agent_radar is not None:
+        app_updates["agent_indicators"] = args.agent_radar
+    if args.ssh_alert is not None:
+        app_updates["ssh_alert"] = args.ssh_alert
+    if args.command_palette is not None:
+        app_updates["command_palette"] = args.command_palette
 
     mutated = False
 

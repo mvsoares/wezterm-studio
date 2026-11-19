@@ -28,7 +28,7 @@ from .core import (
     restore_backup,
     sanitize_legacy_lua,
 )
-from .fonts import get_color_schemes, get_installed_fonts
+from .fonts import get_color_scheme_palettes, get_color_schemes, get_installed_fonts
 from .paths import resolve_wezterm_paths
 from .server import run_studio_server
 from .themes import (
@@ -60,10 +60,15 @@ _ANSI_RE = re.compile(r"\033\[[0-9;]*m")
 
 
 def hex_to_rgb(hex_str: str) -> tuple[int, int, int]:
-    h = hex_str.lstrip("#")
+    h = (hex_str or "").lstrip("#")
     if len(h) == 3:
         h = "".join(c * 2 for c in h)
-    return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+    if len(h) < 6:
+        return (128, 128, 128)
+    try:
+        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+    except ValueError:
+        return (128, 128, 128)
 
 
 def ansi_fg(hex_str: str) -> str:
@@ -74,6 +79,18 @@ def ansi_fg(hex_str: str) -> str:
 def ansi_bg(hex_str: str) -> str:
     r, g, b = hex_to_rgb(hex_str)
     return f"\033[48;2;{r};{g};{b}m"
+
+
+def render_scheme_swatch(pal: dict[str, Any] | None) -> str:
+    """Render a compact TrueColor terminal swatch (`$_` + 6 ANSI dots + D/L tag)."""
+    if not pal:
+        return "              "
+    bg = pal.get("bg") or "#1e1e2e"
+    fg = pal.get("fg") or "#cdd6f4"
+    ansi = pal.get("ansi") or []
+    dots = "".join(f"{ansi_fg(c)}●" for c in ansi[1:7])
+    mode_tag = f"{DIM}D{RESET}" if pal.get("is_dark", True) else f"{YELLOW}L{RESET}"
+    return f"{ansi_bg(bg)}{ansi_fg(fg)} $_ {dots} {RESET} {mode_tag}"
 
 
 def char_cells(ch: str) -> int:
@@ -607,8 +624,9 @@ def fonts_menu() -> str:
 
 
 def color_scheme_menu() -> str:
-    """Interactive quick Color Scheme picker."""
+    """Interactive quick Color Scheme & Workflow Radar picker."""
     schemes = get_color_schemes()
+    pal_map = {p["name"]: p for p in get_color_scheme_palettes()}
     favorites = [
         "Monokai Vivid",
         "Catppuccin Mocha",
@@ -636,20 +654,24 @@ def color_scheme_menu() -> str:
         sbar_on = bool(app.get("status_bar"))
         ed_on = app.get("open_in_editor") is not False
         ed_cmd = app.get("editor_cmd") or "$EDITOR"
+        agents_on = app.get("agent_indicators") is not False
+        ssh_on = app.get("ssh_alert") is not False
+        pal_on = app.get("command_palette") is not False
         max_w = app.get("tab_max_width")
         fancy_mode = "Auto" if app.get("use_fancy_tab_bar") is None else ("Fancy" if app.get("use_fancy_tab_bar") else "Retro")
         term_cols = shutil.get_terminal_size((90, 28)).columns
-        box_w = max(68, min(88, term_cols - 4))
-        hdr = f"  🎨 COLORS, TABS, WINDOW & $EDITOR ({len(schemes)} built-in schemes)"
+        box_w = max(68, min(90, term_cols - 4))
+        hdr = f"  🎨 COLORS, TABS, RADARS & $EDITOR ({len(schemes)} built-in schemes)"
         hdr_pad = hdr + " " * max(0, box_w - visible_len(hdr))
 
         print("\033[2J\033[H", end="")
         print(f"{BOLD}{BLUE}╔{'═' * box_w}╗{RESET}")
         print(f"{BOLD}{BLUE}║{hdr_pad}║{RESET}")
         print(f"{BOLD}{BLUE}╚{'═' * box_w}╝{RESET}")
+        cur_sw = render_scheme_swatch(pal_map.get(cur_scheme)) if cur_scheme in pal_map else ""
         print(
-            f"\n  {GREEN}Active scheme:{RESET} {BOLD}{cur_scheme}{RESET}    "
-            f"{CYAN}Light scheme:{RESET} {BOLD}{light_scheme}{RESET}    "
+            f"\n  {GREEN}Active scheme:{RESET} {BOLD}{cur_scheme}{RESET} {cur_sw}   "
+            f"{CYAN}Light scheme:{RESET} {BOLD}{light_scheme}{RESET}   "
             f"{MAGENTA}$EDITOR links:{RESET} {BOLD}{ed_cmd if ed_on else 'OFF'}{RESET}"
         )
         print(
@@ -657,27 +679,34 @@ def color_scheme_menu() -> str:
             f"{DIM}Gradient:{RESET} {BOLD}{'ON' if grad_on else 'OFF'}{RESET} · "
             f"{DIM}1px border:{RESET} {BOLD}{'ON' if border_on else 'OFF'}{RESET} · "
             f"{DIM}Status bar:{RESET} {BOLD}{'ON' if sbar_on else 'OFF'}{RESET} · "
-            f"{DIM}Tabs:{RESET} {BOLD}{fancy_mode}{RESET} (max {max_w or 'auto'}c)\n"
+            f"{DIM}Tabs:{RESET} {BOLD}{fancy_mode}{RESET} (max {max_w or 'auto'}c)"
         )
-        print(f"  {BOLD}Quick Favorites:{RESET}")
+        print(
+            f"  {DIM}AI agent radar:{RESET} {BOLD}{GREEN if agents_on else DIM}{'ON' if agents_on else 'OFF'}{RESET} · "
+            f"{DIM}SSH/PROD alert:{RESET} {BOLD}{GREEN if ssh_on else DIM}{'ON' if ssh_on else 'OFF'}{RESET} · "
+            f"{DIM}Cmd Palette (Ctrl+Shift+P):{RESET} {BOLD}{GREEN if pal_on else DIM}{'ON' if pal_on else 'OFF'}{RESET}\n"
+        )
+        print(f"  {BOLD}Quick Favorites (with TrueColor Swatches):{RESET}")
         for i, fav in enumerate(favorites, start=1):
             mark = f" {GREEN}★{RESET}" if fav == cur_scheme else ""
-            print(f"    {BOLD}[{i:02d}]{RESET} {fav}{mark}")
+            sw = render_scheme_swatch(pal_map.get(fav))
+            print(f"    {BOLD}[{i:02d}]{RESET} {sw}  {fav}{mark}")
 
         if matches:
             print(f"\n  {BOLD}{CYAN}Search results ({len(matches)}):{RESET}")
             for s in matches[:15]:
-                print(f"    • {s}")
+                sw = render_scheme_swatch(pal_map.get(s))
+                print(f"    {sw}  {s}")
 
         if status_msg:
             print(f"\n  {status_msg}")
             status_msg = ""
 
         print(
-            f"\n  {DIM}[1-{len(favorites)}] Favorite | [/q] Search | [light <name>|off] | [dim <0.4-1.0>] | [grad] | [border] | [status]{RESET}"
+            f"\n  {DIM}[1-{len(favorites)}] Favorite | [/q | /dark | /light] Search | [light <name>|off] | [dim <0.4-1.0>] | [grad] | [border] | [status]{RESET}"
         )
         print(
-            f"  {DIM}[editor <cmd>|env] Set $EDITOR | [links] Toggle click-to-editor | [maxw <16-120|auto>] | [fancy|retro|auto] | [q] Back{RESET}"
+            f"  {DIM}[agents] AI radar | [ssh] SSH/prod tint | [palette] Cmd palette | [editor <cmd>|env] | [links] | [maxw <N|auto>] | [fancy|retro|auto] | [q] Back{RESET}"
         )
         try:
             ans = input(f"  {BOLD}{CYAN}❯ Scheme or command:{RESET} ").strip()
@@ -687,6 +716,30 @@ def color_scheme_menu() -> str:
         low = ans.lower()
         if not ans or low in ("q", "quit", "back", "exit"):
             return "Returned to theme catalog."
+        if low in ("agents", "agent", "agent-radar"):
+            ok, err = apply_appearance({"agent_indicators": not agents_on})
+            status_msg = (
+                f"{GREEN}{BOLD}✔ AI coding agent radar {'enabled' if not agents_on else 'disabled'}!{RESET}"
+                if ok
+                else failure_msg(err)
+            )
+            continue
+        if low in ("ssh", "ssh-alert", "prod"):
+            ok, err = apply_appearance({"ssh_alert": not ssh_on})
+            status_msg = (
+                f"{GREEN}{BOLD}✔ SSH & production danger tint {'enabled' if not ssh_on else 'disabled'}!{RESET}"
+                if ok
+                else failure_msg(err)
+            )
+            continue
+        if low in ("palette", "cmd-palette", "command-palette"):
+            ok, err = apply_appearance({"command_palette": not pal_on})
+            status_msg = (
+                f"{GREEN}{BOLD}✔ WezTerm Command Palette actions {'enabled' if not pal_on else 'disabled'}!{RESET}"
+                if ok
+                else failure_msg(err)
+            )
+            continue
         if low in ("links", "open-in-editor"):
             ok, err = apply_appearance({"open_in_editor": not ed_on})
             status_msg = (
@@ -777,9 +830,21 @@ def color_scheme_menu() -> str:
                 status_msg = f"{GREEN}{BOLD}✔ Color scheme '{chosen}' applied!{RESET}" if ok else failure_msg(err)
         elif ans.startswith("/"):
             q = ans[1:].strip().lower()
-            matches = [s for s in schemes if q in s.lower()]
+            only_dark: bool | None = None
+            if q == "dark" or q.startswith("dark "):
+                only_dark = True
+                q = q[4:].strip()
+            elif q == "light" or q.startswith("light "):
+                only_dark = False
+                q = q[5:].strip()
+            matches = [
+                s
+                for s in schemes
+                if (not q or q in s.lower())
+                and (only_dark is None or pal_map.get(s, {}).get("is_dark", True) is only_dark)
+            ]
             if not matches:
-                status_msg = f"{YELLOW}No schemes found matching '{q}'.{RESET}"
+                status_msg = f"{YELLOW}No schemes found matching '{ans[1:].strip()}'.{RESET}"
         else:
             exact = next((s for s in schemes if s.lower() == ans.lower()), None)
             if exact:
