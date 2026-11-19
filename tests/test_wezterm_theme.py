@@ -112,6 +112,10 @@ class CrossPlatformPathsTests(unittest.TestCase):
             self.assertEqual(get_platform_name(), "windows")
             self.assertIn("wezterm-theme", get_cache_dir().as_posix())
 
+        with mock.patch("sys.platform", "linux"):
+            self.assertEqual(get_platform_name(), "linux")
+            self.assertIn("wezterm-theme", get_cache_dir().as_posix())
+
     def test_legacy_dotfile_resolution(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fake_home = Path(tmp)

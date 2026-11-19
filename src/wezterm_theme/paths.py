@@ -47,7 +47,7 @@ def init_terminal() -> None:
 
 def get_platform_name() -> str:
     """Return normalized OS identifier: 'linux', 'macos', or 'windows'."""
-    if os.name == "nt" or sys.platform.startswith("win"):
+    if sys.platform.startswith("win"):
         return "windows"
     if sys.platform == "darwin":
         return "macos"
