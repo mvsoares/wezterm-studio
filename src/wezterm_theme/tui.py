@@ -493,7 +493,9 @@ def fonts_menu() -> str:
         tb_font = app.get("tab_font_family") or "Default"
         tb_size = app.get("tab_font_size") or 11
         lig_on = app.get("font_ligatures") is not False
+        fb_on = bool(app.get("font_fallback"))
         lig_badge = f"{GREEN}ON{RESET}" if lig_on else f"{YELLOW}OFF{RESET}"
+        fb_badge = f"{GREEN}ON{RESET}" if fb_on else f"{DIM}OFF{RESET}"
 
         filtered = [
             (idx + 1, f)
@@ -515,7 +517,8 @@ def fonts_menu() -> str:
         print(
             f"\n  {CYAN}Editor:{RESET} {BOLD}{ed_font}{RESET} ({ed_size}pt)    "
             f"{MAGENTA}Tabs:{RESET} {BOLD}{tb_font}{RESET} ({tb_size}pt)    "
-            f"{CYAN}Ligatures:{RESET} {BOLD}{lig_badge}"
+            f"{CYAN}Ligatures:{RESET} {BOLD}{lig_badge}    "
+            f"{CYAN}Fallback:{RESET} {BOLD}{fb_badge}"
         )
         if query:
             print(f"  {YELLOW}Active filter:{RESET} '{query}' ({len(filtered)} of {len(fonts)} fonts) — type [c] to clear")
@@ -543,7 +546,7 @@ def fonts_menu() -> str:
         print(
             f"\n  {DIM}{BOLD}[1-{len(fonts)}]{RESET}{DIM} Editor Font  |  {BOLD}[t<N>]{RESET}{DIM} Tab Font  |  "
             f"{BOLD}[size <PT>]{RESET}{DIM} Editor Size  |  {BOLD}[tsize <PT>]{RESET}{DIM} Tab Font Size  |  "
-            f"{BOLD}[lh <N>]{RESET}{DIM} Line Height  |  {BOLD}[lig]{RESET}{DIM} Ligatures{RESET}"
+            f"{BOLD}[lh <N>]{RESET}{DIM} Line Height  |  {BOLD}[lig]{RESET}{DIM} Ligatures  |  {BOLD}[fb]{RESET}{DIM} Nerd Fallback{RESET}"
         )
         print(
             f"  {DIM}{BOLD}[n/p]{RESET}{DIM} Page  |  {BOLD}[/text]{RESET}{DIM} Filter  |  "
@@ -572,6 +575,14 @@ def fonts_menu() -> str:
             ok, err = apply_appearance({"font_ligatures": new_lig})
             status_msg = (
                 f"{GREEN}{BOLD}✔ Programming ligatures {'enabled' if new_lig else 'disabled'}!{RESET}"
+                if ok
+                else failure_msg(err)
+            )
+        elif low in ("fb", "fallback"):
+            new_fb = not fb_on
+            ok, err = apply_appearance({"font_fallback": new_fb})
+            status_msg = (
+                f"{GREEN}{BOLD}✔ Symbols Nerd Font fallback {'enabled' if new_fb else 'disabled'}!{RESET}"
                 if ok
                 else failure_msg(err)
             )
@@ -649,6 +660,9 @@ def color_scheme_menu() -> str:
         cur_scheme = app.get("color_scheme") or "Default"
         light_scheme = app.get("color_scheme_light") or "Off"
         dim_val = app.get("inactive_pane_brightness")
+        blur_val = app.get("window_blur") or 0
+        oled_on = bool(app.get("oled_black"))
+        qsel_on = bool(app.get("quick_select"))
         grad_on = bool(app.get("background_gradient"))
         border_on = bool(app.get("accent_border"))
         sbar_on = bool(app.get("status_bar"))
@@ -676,10 +690,12 @@ def color_scheme_menu() -> str:
         )
         print(
             f"  {DIM}Inactive dim:{RESET} {BOLD}{f'{dim_val:g}' if dim_val is not None else '1.0'}{RESET} · "
+            f"{DIM}Blur:{RESET} {BOLD}{blur_val or 'OFF'}{RESET} · "
+            f"{DIM}OLED:{RESET} {BOLD}{'ON' if oled_on else 'OFF'}{RESET} · "
             f"{DIM}Gradient:{RESET} {BOLD}{'ON' if grad_on else 'OFF'}{RESET} · "
             f"{DIM}1px border:{RESET} {BOLD}{'ON' if border_on else 'OFF'}{RESET} · "
             f"{DIM}Status bar:{RESET} {BOLD}{'ON' if sbar_on else 'OFF'}{RESET} · "
-            f"{DIM}Tabs:{RESET} {BOLD}{fancy_mode}{RESET} (max {max_w or 'auto'}c)"
+            f"{DIM}QuickSelect:{RESET} {BOLD}{'ON' if qsel_on else 'OFF'}{RESET}"
         )
         print(
             f"  {DIM}AI agent radar:{RESET} {BOLD}{GREEN if agents_on else DIM}{'ON' if agents_on else 'OFF'}{RESET} · "
@@ -703,7 +719,7 @@ def color_scheme_menu() -> str:
             status_msg = ""
 
         print(
-            f"\n  {DIM}[1-{len(favorites)}] Favorite | [/q | /dark | /light] Search | [light <name>|off] | [dim <0.4-1.0>] | [grad] | [border] | [status]{RESET}"
+            f"\n  {DIM}[1-{len(favorites)}] Favorite | [/q | /dark | /light] Search | [oled] | [blur <0-100>] | [dim <0.4-1.0>] | [grad] | [border] | [status] | [qsel]{RESET}"
         )
         print(
             f"  {DIM}[agents] AI radar | [ssh] SSH/prod tint | [palette] Cmd palette | [editor <cmd>|env] | [links] | [maxw <N|auto>] | [fancy|retro|auto] | [q] Back{RESET}"
@@ -785,6 +801,32 @@ def color_scheme_menu() -> str:
                 if ok
                 else failure_msg(err)
             )
+            continue
+        if low == "oled":
+            ok, err = apply_appearance({"oled_black": not oled_on})
+            status_msg = (
+                f"{GREEN}{BOLD}✔ OLED #000000 background {'enabled' if not oled_on else 'disabled'}!{RESET}"
+                if ok
+                else failure_msg(err)
+            )
+            continue
+        if low in ("qsel", "quick-select", "quickselect"):
+            ok, err = apply_appearance({"quick_select": not qsel_on})
+            status_msg = (
+                f"{GREEN}{BOLD}✔ Quick Select power patterns {'enabled' if not qsel_on else 'disabled'}!{RESET}"
+                if ok
+                else failure_msg(err)
+            )
+            continue
+        if low.startswith("blur "):
+            try:
+                bv = int(ans.split(None, 1)[1])
+                if not (0 <= bv <= 100):
+                    raise ValueError
+                ok, err = apply_appearance({"window_blur": bv})
+                status_msg = f"{GREEN}{BOLD}✔ Window blur set to {bv or 'Off'}!{RESET}" if ok else failure_msg(err)
+            except ValueError:
+                status_msg = f"{RED}Usage: blur 20 (between 0 and 100){RESET}"
             continue
         if low == "grad":
             ok, err = apply_appearance({"background_gradient": not grad_on})

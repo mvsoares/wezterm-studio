@@ -18,10 +18,13 @@ from .core import (
     apply_appearance,
     apply_theme,
     backup_current_config,
+    clear_session_snapshot,
+    detect_performance_warnings,
     detect_user_config_conflicts,
     export_preset,
     get_available_backups,
     get_current_state,
+    get_session_snapshot_info,
     import_preset,
     init_wezterm_config,
     restore_backup,
@@ -52,7 +55,7 @@ from .tui import (
     symbols_menu,
 )
 
-SUBCOMMANDS = {"init", "uninstall", "web", "studio", "tui", "fonts", "doctor", "export", "import"}
+SUBCOMMANDS = {"init", "uninstall", "web", "studio", "tui", "fonts", "doctor", "session", "export", "import"}
 
 
 def _cmd_init(argv: Sequence[str]) -> int:
@@ -143,6 +146,14 @@ def _cmd_doctor(argv: Sequence[str]) -> int:
     print(f"  {BOLD}Theme Module:{RESET}       {state['active_module']}")
     print(f"  {BOLD}Cache Dir:{RESET}          {info['cache_dir']}")
     print(f"  {BOLD}Detected Fonts:{RESET}     {len(fonts)} monospace/Nerd Fonts")
+    sess = get_session_snapshot_info(paths)
+    if sess["exists"]:
+        print(
+            f"  {BOLD}Session Snapshot:{RESET}   {sess['total_tabs']} tab(s) across "
+            f"{len(sess['workspaces'])} workspace(s) ({sess.get('saved_at') or 'saved'})"
+        )
+    else:
+        print(f"  {BOLD}Session Snapshot:{RESET}   none saved yet (use Ctrl+Shift+P in WezTerm)")
 
     cfg_path = paths["config_file"]
     if cfg_path.is_file():
@@ -153,15 +164,50 @@ def _cmd_doctor(argv: Sequence[str]) -> int:
         print(f"\n  {GREEN}{BOLD}✔ wezterm.lua validated cleanly!{RESET}")
 
         conflicts = detect_user_config_conflicts(paths)
-        if conflicts:
-            print(f"\n  {YELLOW}{BOLD}⚠ Configuration Warning(s):{RESET}")
-            for c in conflicts:
-                print(f"    • {c}")
-            print(f"    {DIM}Hint: Comment out or remove existing 'format-tab-title' handlers in wezterm.lua so Studio themes can render.{RESET}\n")
+        perf_warnings = detect_performance_warnings(paths, appearance=state.get("appearance"))
+        all_warnings = [*conflicts, *perf_warnings]
+        if all_warnings:
+            print(f"\n  {YELLOW}{BOLD}⚠ Configuration & Performance Warning(s):{RESET}")
+            for w in all_warnings:
+                print(f"    • {w}")
+            if conflicts:
+                print(f"    {DIM}Hint: Run 'wezterm-theme init' to comment out conflicting 'format-tab-title' handlers automatically.{RESET}")
+            print("")
         else:
             print("")
     else:
         print(f"\n  {YELLOW}ℹ {cfg_path} does not exist yet. Run 'wezterm-theme init' to create it.{RESET}\n")
+    return 0
+
+
+def _cmd_session(argv: Sequence[str]) -> int:
+    p = argparse.ArgumentParser(
+        prog="wezterm-theme session",
+        description="Inspect or clear saved WezTerm Studio workspace session snapshots.",
+    )
+    p.add_argument("action", nargs="?", default="status", choices=["status", "clear"], help="Action (default: status)")
+    ns = p.parse_args(argv)
+    if ns.action == "clear":
+        ok, msg = clear_session_snapshot()
+        if ok:
+            print(f"{GREEN}{BOLD}✔ {msg}{RESET}")
+            return 0
+        print(f"{YELLOW}ℹ {msg}{RESET}")
+        return 0
+
+    info = get_session_snapshot_info()
+    print(f"\n{BOLD}{CYAN}=== WEZTERM STUDIO WORKSPACE SESSION SNAPSHOT ==={RESET}\n")
+    print(f"  {BOLD}Snapshot File:{RESET}    {info['path']}")
+    if not info["exists"]:
+        print(f"  {BOLD}Status:{RESET}           {YELLOW}No snapshot saved yet{RESET}")
+        print(f"\n  {DIM}Tip: Press Ctrl+Shift+P inside WezTerm → 'WezTerm Studio: Save Workspace Session Snapshot'{RESET}\n")
+        return 0
+    print(f"  {BOLD}Saved At:{RESET}         {info.get('saved_at') or 'unknown'}")
+    print(f"  {BOLD}Active Workspace:{RESET} {info.get('active_workspace') or 'default'}")
+    print(f"  {BOLD}Total Tabs:{RESET}       {info['total_tabs']} across {len(info['workspaces'])} workspace(s)")
+    for ws in info["workspaces"]:
+        print(f"    • {BOLD}{ws['name']}{RESET} ({ws['tab_count']} tab{'s' if ws['tab_count'] != 1 else ''})")
+    print(f"\n  {DIM}Tip: Press Ctrl+Shift+P inside WezTerm → 'WezTerm Studio: Restore Saved Workspace Session'{RESET}\n")
     return 0
 
 
@@ -207,23 +253,37 @@ def _print_current_status() -> None:
             print(f"  {BOLD}Symbols:{RESET}       {MAGENTA}Custom{RESET} {DIM}{syms}{RESET}")
         print(f"  {BOLD}Preview:{RESET}       {render_4_tab_bar(apply_symbols(t, syms), tab_title_len=tlen)}")
     lig_state = "Off" if app.get("font_ligatures") is False else "On"
+    fb_state = " · Fallback: On" if app.get("font_fallback") else ""
     print(
         f"  {BOLD}Editor Font:{RESET}   {app.get('font_family') or 'WezTerm Default'} "
-        f"({app.get('font_weight') or 'Regular'}, {app.get('font_size') or 13}pt · Ligatures: {lig_state})"
+        f"({app.get('font_weight') or 'Regular'}, {app.get('font_size') or 13}pt · Ligatures: {lig_state}{fb_state})"
     )
     print(
         f"  {BOLD}Tab Font:{RESET}      {app.get('tab_font_family') or 'WezTerm Default'} "
         f"({app.get('tab_font_weight') or 'Medium'}, {app.get('tab_font_size') or 11}pt)"
     )
     light_info = f" (Light: {app['color_scheme_light']})" if app.get("color_scheme_light") else ""
-    print(f"  {BOLD}Color Scheme:{RESET}  {app.get('color_scheme') or 'Default'}{light_info}")
+    oled_info = " [OLED #000000]" if app.get("oled_black") else ""
+    print(f"  {BOLD}Color Scheme:{RESET}  {app.get('color_scheme') or 'Default'}{light_info}{oled_info}")
     extras: list[str] = []
+    if app.get("window_blur"):
+        extras.append(f"Blur: {app['window_blur']}")
+    if app.get("win32_backdrop"):
+        extras.append(f"Win32: {app['win32_backdrop']}")
+    if app.get("cursor_color"):
+        extras.append(f"Cursor: {app['cursor_color']}")
     if app.get("inactive_pane_brightness") is not None:
         extras.append(f"Inactive dim: {app['inactive_pane_brightness']:g}")
     if app.get("background_gradient"):
         extras.append("Oklab gradient: On")
     if app.get("accent_border"):
         extras.append("1px accent border: On")
+    if app.get("front_end"):
+        extras.append(f"Renderer: {app['front_end']}")
+    if app.get("max_fps"):
+        extras.append(f"Max FPS: {app['max_fps']}")
+    if app.get("quick_select"):
+        extras.append("QuickSelect: On")
     if app.get("status_bar") is not None:
         extras.append(f"Status bar: {'On' if app['status_bar'] else 'Off'}")
     if app.get("tab_max_width") is not None:
@@ -265,6 +325,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_fonts(rest)
         if sub == "doctor":
             return _cmd_doctor(rest)
+        if sub == "session":
+            return _cmd_session(rest)
         if sub == "export":
             return _cmd_export(rest)
         if sub == "import":
@@ -281,6 +343,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "  web         Launch full WezTerm Studio in your browser (fonts + tabs + colors)\n"
             "  tui         Open the interactive TrueColor terminal picker (default with no args)\n"
             "  fonts       List or pick monospace and Nerd Fonts\n"
+            "  session     Inspect or clear saved workspace session snapshots\n"
             "  doctor      Run WezTerm diagnostics on Linux, macOS, or Windows\n"
             "  export      Export a portable JSON preset\n"
             "  import      Import a portable JSON preset\n"
@@ -310,6 +373,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=None,
         help="Enable or disable programming font ligatures (calt/clig/liga)",
     )
+    parser.add_argument(
+        "--font-fallback",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable automatic Symbols Nerd Font Mono + Emoji fallback chain",
+    )
     parser.add_argument("--tab-font", metavar="FAMILY", help="Set the tab bar font family")
     parser.add_argument("--tab-weight", metavar="WEIGHT", help="Tab bar font weight (e.g. Medium, Bold)")
     parser.add_argument("--tab-size", type=float, metavar="PT", help="Tab bar font size in points (e.g. 11.5)")
@@ -337,8 +406,44 @@ def main(argv: Sequence[str] | None = None) -> int:
         metavar="NAME",
         help="Set companion color scheme for OS Light mode (use 'Default' to clear)",
     )
+    parser.add_argument(
+        "--oled",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable OLED pitch-black (#000000) dark background override",
+    )
+    parser.add_argument(
+        "--cursor-color",
+        metavar="HEX",
+        help="Override cursor color in #RRGGBB format (or 'Default' to clear)",
+    )
     parser.add_argument("--opacity", type=float, metavar="0.1-1.0", help="Window background opacity (e.g. 0.92)")
+    parser.add_argument("--blur", type=int, metavar="0-100", help="Cross-platform frosted-glass background blur (macOS, KDE, Win11; 0 disables)")
+    parser.add_argument(
+        "--win32-backdrop",
+        choices=["Auto", "Acrylic", "Mica", "Tabbed", "Disable"],
+        help="Windows 11 system backdrop material",
+    )
     parser.add_argument("--padding", type=int, metavar="PX", help="Inner window padding in pixels (e.g. 10)")
+    parser.add_argument(
+        "--front-end",
+        choices=["Auto", "WebGpu", "OpenGL", "Software"],
+        help="WezTerm rendering backend (Auto, WebGpu, OpenGL, or Software)",
+    )
+    parser.add_argument("--max-fps", type=int, metavar="FPS", help="Maximum rendering FPS (15-240, or 0 for default)")
+    parser.add_argument("--animation-fps", type=int, metavar="FPS", help="Animation & cursor blink FPS (1-240, or 0 for default)")
+    parser.add_argument(
+        "--wayland",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Explicitly enable or disable native Wayland support on Linux",
+    )
+    parser.add_argument(
+        "--quick-select",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable Quick Select power patterns (Ctrl+Shift+Space: Git SHA, UUID, IP, K8s, file:line)",
+    )
     parser.add_argument(
         "--dim-inactive",
         type=float,
@@ -381,6 +486,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=None,
         help="Enable or disable Studio & Zen Mode actions in WezTerm's Ctrl+Shift+P Command Palette",
     )
+    parser.add_argument(
+        "--workspace-switcher",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable zoxide & Git Project Workspace Switcher in Ctrl+Shift+P",
+    )
+    parser.add_argument(
+        "--session-manager",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable Workspace Session Save & Restore in Ctrl+Shift+P",
+    )
     parser.add_argument("--list-fonts", action="store_true", help="List all installed monospace and Nerd Fonts")
     parser.add_argument("--list-schemes", action="store_true", help="List built-in WezTerm color schemes with TrueColor swatches")
 
@@ -408,6 +525,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.tab_max_width is not None and args.tab_max_width != 0 and not (16 <= args.tab_max_width <= 120):
         print(f"{RED}Error: --tab-max-width must be between 16 and 120 (or 0 to reset to auto).{RESET}", file=sys.stderr)
         return 1
+    if args.blur is not None and not (0 <= args.blur <= 100):
+        print(f"{RED}Error: --blur must be between 0 and 100.{RESET}", file=sys.stderr)
+        return 1
+    if args.max_fps is not None and args.max_fps != 0 and not (15 <= args.max_fps <= 240):
+        print(f"{RED}Error: --max-fps must be between 15 and 240 (or 0 for default).{RESET}", file=sys.stderr)
+        return 1
+    if args.animation_fps is not None and args.animation_fps != 0 and not (1 <= args.animation_fps <= 240):
+        print(f"{RED}Error: --animation-fps must be between 1 and 240 (or 0 for default).{RESET}", file=sys.stderr)
+        return 1
+    if args.cursor_color is not None and args.cursor_color not in ("Default", "off", "none", ""):
+        import re as _re
+        if not _re.fullmatch(r"#[0-9a-fA-F]{6}", args.cursor_color.strip()):
+            print(f"{RED}Error: --cursor-color must be #RRGGBB (e.g. '#60a5fa') or 'Default'.{RESET}", file=sys.stderr)
+            return 1
 
     if args.backups:
         print_backups_list(get_available_backups())
@@ -482,6 +613,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         app_updates["font_size"] = args.size
     if args.ligatures is not None:
         app_updates["font_ligatures"] = args.ligatures
+    if args.font_fallback is not None:
+        app_updates["font_fallback"] = args.font_fallback
     if args.tab_font:
         app_updates["tab_font_family"] = args.tab_font
     if args.tab_weight:
@@ -500,10 +633,28 @@ def main(argv: Sequence[str] | None = None) -> int:
         app_updates["color_scheme"] = args.scheme
     if args.light_scheme is not None:
         app_updates["color_scheme_light"] = args.light_scheme
+    if args.oled is not None:
+        app_updates["oled_black"] = args.oled
+    if args.cursor_color is not None:
+        app_updates["cursor_color"] = args.cursor_color
     if args.opacity is not None:
         app_updates["window_opacity"] = args.opacity
+    if args.blur is not None:
+        app_updates["window_blur"] = args.blur
+    if args.win32_backdrop is not None:
+        app_updates["win32_backdrop"] = args.win32_backdrop
     if args.padding is not None:
         app_updates["window_padding"] = args.padding
+    if args.front_end is not None:
+        app_updates["front_end"] = args.front_end
+    if args.max_fps is not None:
+        app_updates["max_fps"] = args.max_fps
+    if args.animation_fps is not None:
+        app_updates["animation_fps"] = args.animation_fps
+    if args.wayland is not None:
+        app_updates["enable_wayland"] = args.wayland
+    if args.quick_select is not None:
+        app_updates["quick_select"] = args.quick_select
     if args.dim_inactive is not None:
         app_updates["inactive_pane_brightness"] = args.dim_inactive
     if args.gradient is not None:
@@ -518,6 +669,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         app_updates["ssh_alert"] = args.ssh_alert
     if args.command_palette is not None:
         app_updates["command_palette"] = args.command_palette
+    if args.workspace_switcher is not None:
+        app_updates["workspace_switcher"] = args.workspace_switcher
+    if args.session_manager is not None:
+        app_updates["session_manager"] = args.session_manager
 
     mutated = False
 

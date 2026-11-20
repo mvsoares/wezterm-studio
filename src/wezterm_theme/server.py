@@ -21,9 +21,12 @@ from .core import (
     apply_appearance,
     apply_theme,
     backup_current_config,
+    clear_session_snapshot,
+    detect_performance_warnings,
     export_preset,
     get_available_backups,
     get_current_state,
+    get_session_snapshot_info,
     import_preset,
     init_wezterm_config,
     restore_backup,
@@ -126,10 +129,13 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             return
 
         if route == "/api/bootstrap":
+            st = get_current_state()
             self._send_json({
                 "ok": True,
                 "version": __version__,
-                "state": get_current_state(),
+                "state": st,
+                "warnings": detect_performance_warnings(appearance=st.get("appearance")),
+                "session": get_session_snapshot_info(),
                 "system": system_summary(),
                 "themes": THEMES,
                 "categories": [
@@ -139,6 +145,10 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 "default_symbols": DEFAULT_SYMBOLS,
                 "no_symbol_styles": sorted(NO_SYMBOL_STYLES),
             })
+            return
+
+        if route == "/api/session":
+            self._send_json({"ok": True, "session": get_session_snapshot_info()})
             return
 
         if route == "/api/fonts":
@@ -186,6 +196,11 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             self._send_json({"ok": ok, "msg": msg, "state": get_current_state()})
             return
 
+        if route == "/api/clear-session":
+            ok, msg = clear_session_snapshot()
+            self._send_json({"ok": ok, "msg": msg, "session": get_session_snapshot_info()})
+            return
+
         if route == "/api/apply-tab-theme":
             tid = body.get("theme_id")
             if tid is None:
@@ -225,7 +240,13 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "msg": f"WezTerm rejected update: {_short_err(err)}"})
                 return
             label = body.get("label") or "Settings updated!"
-            self._send_json({"ok": True, "msg": label, "state": get_current_state()})
+            new_st = get_current_state()
+            self._send_json({
+                "ok": True,
+                "msg": label,
+                "state": new_st,
+                "warnings": detect_performance_warnings(appearance=new_st.get("appearance")),
+            })
             return
 
         if route == "/api/backup":

@@ -41,12 +41,17 @@ DEFAULT_APPEARANCE: dict[str, Any] = {
     "font_size": None,
     "line_height": None,
     "font_ligatures": None,
+    "font_fallback": None,
     "tab_font_family": None,
     "tab_font_weight": "Medium",
     "tab_font_size": None,
     "color_scheme": None,
     "color_scheme_light": None,
+    "oled_black": None,
+    "cursor_color": None,
     "window_opacity": None,
+    "window_blur": None,
+    "win32_backdrop": None,
     "window_padding": None,
     "window_decorations": None,
     "inactive_pane_brightness": None,
@@ -56,6 +61,11 @@ DEFAULT_APPEARANCE: dict[str, Any] = {
     "cursor_blink_rate": None,
     "audible_bell": None,
     "scrollback_lines": None,
+    "front_end": None,
+    "max_fps": None,
+    "animation_fps": None,
+    "enable_wayland": None,
+    "quick_select": None,
     "hide_tab_bar_if_only_one_tab": None,
     "tab_bar_at_bottom": None,
     "use_fancy_tab_bar": None,
@@ -66,6 +76,8 @@ DEFAULT_APPEARANCE: dict[str, Any] = {
     "agent_indicators": None,
     "ssh_alert": None,
     "command_palette": None,
+    "workspace_switcher": None,
+    "session_manager": None,
 }
 
 
@@ -170,6 +182,7 @@ def _extract_loader_appearance(merged: dict[str, Any], settings_only: dict[str, 
     app["font_size"] = f.get("size")
     app["line_height"] = f.get("line_height")
     app["font_ligatures"] = f.get("ligatures") if isinstance(f.get("ligatures"), bool) else None
+    app["font_fallback"] = f.get("fallback") if isinstance(f.get("fallback"), bool) else None
 
     ff = tb.get("frame_font") if isinstance(tb.get("frame_font"), dict) else {}
     app["tab_font_family"] = ff.get("family")
@@ -178,7 +191,12 @@ def _extract_loader_appearance(merged: dict[str, Any], settings_only: dict[str, 
 
     app["color_scheme"] = c.get("scheme")
     app["color_scheme_light"] = c.get("scheme_light") or None
+    if c.get("oled_black") is not None:
+        app["oled_black"] = bool(c.get("oled_black"))
+    app["cursor_color"] = c.get("cursor_color") or None
     app["window_opacity"] = w.get("opacity")
+    app["window_blur"] = w.get("blur")
+    app["win32_backdrop"] = w.get("win32_backdrop") or None
 
     pad = w.get("padding")
     if isinstance(pad, dict):
@@ -201,6 +219,13 @@ def _extract_loader_appearance(merged: dict[str, Any], settings_only: dict[str, 
     app["cursor_blink_rate"] = cu.get("blink_rate")
     app["audible_bell"] = be.get("audible")
     app["scrollback_lines"] = pf.get("scrollback_lines")
+    app["front_end"] = pf.get("front_end") or None
+    app["max_fps"] = pf.get("max_fps")
+    app["animation_fps"] = pf.get("animation_fps")
+    if d.get("enable_wayland") is not None:
+        app["enable_wayland"] = bool(d.get("enable_wayland"))
+    if hl.get("quick_select") is not None:
+        app["quick_select"] = bool(hl.get("quick_select"))
     app["hide_tab_bar_if_only_one_tab"] = tb.get("hide_if_only_one_tab")
     app["tab_bar_at_bottom"] = tb.get("at_bottom")
     app["use_fancy_tab_bar"] = bool(user_tb["fancy"]) if isinstance(user_tb.get("fancy"), bool) else None
@@ -216,6 +241,10 @@ def _extract_loader_appearance(merged: dict[str, Any], settings_only: dict[str, 
         app["ssh_alert"] = bool(tb.get("ssh_alert"))
     if tb.get("command_palette") is not None:
         app["command_palette"] = bool(tb.get("command_palette"))
+    if tb.get("workspace_switcher") is not None:
+        app["workspace_switcher"] = bool(tb.get("workspace_switcher"))
+    if tb.get("session_manager") is not None:
+        app["session_manager"] = bool(tb.get("session_manager"))
     return app
 
 
@@ -248,6 +277,87 @@ def detect_user_config_conflicts(paths: dict[str, Path] | None = None) -> list[s
             "It overrides WezTerm Studio tab bar themes."
         )
     return conflicts
+
+
+def detect_performance_warnings(
+    paths: dict[str, Path] | None = None,
+    appearance: dict[str, Any] | None = None,
+) -> list[str]:
+    """Inspect user's wezterm.lua and Studio appearance for CPU-heavy rendering combinations."""
+    paths = paths or resolve_wezterm_paths()
+    app = appearance if appearance is not None else get_current_state(paths).get("appearance", {})
+
+    fe = app.get("front_end")
+    anim_fps = app.get("animation_fps")
+    grad = bool(app.get("background_gradient"))
+    blur = int(app.get("window_blur") or 0)
+
+    cfg_file = paths["config_file"]
+    if cfg_file.is_file():
+        try:
+            raw = cfg_file.read_text(encoding="utf-8", errors="ignore")
+            clean = "\n".join(re.sub(r"--.*$", "", ln) for ln in raw.splitlines())
+            if not fe:
+                m_fe = re.search(r"""front_end\s*=\s*['"](WebGpu|OpenGL|Software)['"]""", clean)
+                if m_fe:
+                    fe = m_fe.group(1)
+            if anim_fps is None:
+                m_afps = re.search(r"""animation_fps\s*=\s*(\d+)""", clean)
+                if m_afps:
+                    anim_fps = int(m_afps.group(1))
+        except Exception:
+            pass
+
+    warnings: list[str] = []
+    if fe == "Software":
+        eff_anim = 10 if anim_fps is None else int(anim_fps)
+        if eff_anim > 5:
+            warnings.append(
+                f"front_end='Software' with animation_fps={eff_anim} causes high CPU drain; "
+                "set animation_fps=1 or switch front_end to OpenGL/WebGpu."
+            )
+        if grad or blur > 0:
+            warnings.append(
+                "front_end='Software' combined with Oklab gradient or window blur renders on CPU; "
+                "prefer OpenGL/WebGpu when using backdrop effects."
+            )
+    return warnings
+
+
+def get_session_snapshot_info(paths: dict[str, Path] | None = None) -> dict[str, Any]:
+    """Return metadata for the saved workspace session snapshot (`wezterm_session.json`), if any."""
+    paths = paths or resolve_wezterm_paths()
+    snap = paths.get("session_json") or (paths["config_dir"] / "wezterm_session.json")
+    if not snap.is_file():
+        return {"exists": False, "path": str(snap), "saved_at": None, "active_workspace": None, "workspaces": [], "total_tabs": 0}
+    data = _read_json_safe(snap)
+    ws_raw = data.get("workspaces") if isinstance(data.get("workspaces"), list) else []
+    ws_summary: list[dict[str, Any]] = []
+    total_tabs = 0
+    for item in ws_raw:
+        if isinstance(item, dict):
+            wname = str(item.get("name") or "default")
+            tabs = item.get("tabs") if isinstance(item.get("tabs"), list) else []
+            total_tabs += len(tabs)
+            ws_summary.append({"name": wname, "tab_count": len(tabs)})
+    return {
+        "exists": True,
+        "path": str(snap),
+        "saved_at": data.get("saved_at"),
+        "active_workspace": data.get("active_workspace") or "default",
+        "workspaces": ws_summary,
+        "total_tabs": total_tabs,
+    }
+
+
+def clear_session_snapshot(paths: dict[str, Path] | None = None) -> tuple[bool, str]:
+    """Delete the saved workspace session snapshot file."""
+    paths = paths or resolve_wezterm_paths()
+    snap = paths.get("session_json") or (paths["config_dir"] / "wezterm_session.json")
+    if not snap.is_file():
+        return False, "No saved workspace session snapshot found."
+    snap.unlink(missing_ok=True)
+    return True, f"Cleared workspace session snapshot ({snap.name})."
 
 
 def disable_conflicting_tab_handlers(content: str) -> tuple[str, bool]:
@@ -626,6 +736,7 @@ def _sync_loader_settings(
             or "font_size" in appearance_updates
             or "line_height" in appearance_updates
             or "font_ligatures" in appearance_updates
+            or "font_fallback" in appearance_updates
         ):
             f = data.setdefault("font", {})
             if appearance_updates.get("font_family"):
@@ -638,6 +749,8 @@ def _sync_loader_settings(
                 f["line_height"] = round(float(appearance_updates["line_height"]), 2)
             if "font_ligatures" in appearance_updates and appearance_updates["font_ligatures"] is not None:
                 f["ligatures"] = bool(appearance_updates["font_ligatures"])
+            if "font_fallback" in appearance_updates and appearance_updates["font_fallback"] is not None:
+                f["fallback"] = bool(appearance_updates["font_fallback"])
 
         if "tab_font_family" in appearance_updates or "tab_font_weight" in appearance_updates or "tab_font_size" in appearance_updates:
             ff = tabs.setdefault("frame_font", {})
@@ -649,7 +762,12 @@ def _sync_loader_settings(
                 val = float(appearance_updates["tab_font_size"])
                 ff["size"] = val if val % 1 else int(val)
 
-        if "color_scheme" in appearance_updates or "color_scheme_light" in appearance_updates:
+        if (
+            "color_scheme" in appearance_updates
+            or "color_scheme_light" in appearance_updates
+            or "oled_black" in appearance_updates
+            or "cursor_color" in appearance_updates
+        ):
             c = data.setdefault("colors", {})
             if "color_scheme" in appearance_updates:
                 scheme = appearance_updates["color_scheme"]
@@ -663,9 +781,19 @@ def _sync_loader_settings(
                     c.pop("scheme_light", None)
                 else:
                     c["scheme_light"] = str(scheme_light)
+            if "oled_black" in appearance_updates and appearance_updates["oled_black"] is not None:
+                c["oled_black"] = bool(appearance_updates["oled_black"])
+            if "cursor_color" in appearance_updates:
+                cc = appearance_updates["cursor_color"]
+                if not cc or str(cc) in ("Default", "off", "none"):
+                    c.pop("cursor_color", None)
+                else:
+                    c["cursor_color"] = str(cc).strip().lower()
 
         if (
             "window_opacity" in appearance_updates
+            or "window_blur" in appearance_updates
+            or "win32_backdrop" in appearance_updates
             or "window_padding" in appearance_updates
             or "window_decorations" in appearance_updates
             or "inactive_pane_brightness" in appearance_updates
@@ -675,6 +803,18 @@ def _sync_loader_settings(
             w = data.setdefault("window", {})
             if appearance_updates.get("window_opacity") is not None:
                 w["opacity"] = round(float(appearance_updates["window_opacity"]), 2)
+            if "window_blur" in appearance_updates:
+                bval = appearance_updates["window_blur"]
+                if bval is None or int(bval or 0) <= 0:
+                    w.pop("blur", None)
+                else:
+                    w["blur"] = max(0, min(100, int(bval)))
+            if "win32_backdrop" in appearance_updates:
+                wbd = appearance_updates["win32_backdrop"]
+                if not wbd or str(wbd) in ("Auto", "Default"):
+                    w.pop("win32_backdrop", None)
+                else:
+                    w["win32_backdrop"] = str(wbd)
             if appearance_updates.get("window_padding") is not None:
                 pad = appearance_updates["window_padding"]
                 if isinstance(pad, dict):
@@ -711,9 +851,41 @@ def _sync_loader_settings(
             if appearance_updates.get("audible_bell"):
                 be["audible"] = str(appearance_updates["audible_bell"])
 
-        if "scrollback_lines" in appearance_updates and appearance_updates.get("scrollback_lines") is not None:
+        if (
+            "scrollback_lines" in appearance_updates
+            or "front_end" in appearance_updates
+            or "max_fps" in appearance_updates
+            or "animation_fps" in appearance_updates
+        ):
             pf = data.setdefault("performance", {})
-            pf["scrollback_lines"] = int(appearance_updates["scrollback_lines"])
+            if "scrollback_lines" in appearance_updates and appearance_updates.get("scrollback_lines") is not None:
+                pf["scrollback_lines"] = int(appearance_updates["scrollback_lines"])
+            if "front_end" in appearance_updates:
+                fe_v = appearance_updates["front_end"]
+                if not fe_v or str(fe_v) in ("Auto", "Default"):
+                    pf.pop("front_end", None)
+                else:
+                    pf["front_end"] = str(fe_v)
+            if "max_fps" in appearance_updates:
+                mfps = appearance_updates["max_fps"]
+                if mfps is None or int(mfps or 0) <= 0:
+                    pf.pop("max_fps", None)
+                else:
+                    pf["max_fps"] = int(mfps)
+            if "animation_fps" in appearance_updates:
+                afps = appearance_updates["animation_fps"]
+                if afps is None or int(afps or 0) <= 0:
+                    pf.pop("animation_fps", None)
+                else:
+                    pf["animation_fps"] = int(afps)
+
+        if "enable_wayland" in appearance_updates:
+            d_sec = data.setdefault("display", {})
+            wl_v = appearance_updates["enable_wayland"]
+            if wl_v is None or wl_v == "auto":
+                d_sec.pop("enable_wayland", None)
+            else:
+                d_sec["enable_wayland"] = bool(wl_v)
 
         if "hide_tab_bar_if_only_one_tab" in appearance_updates and appearance_updates["hide_tab_bar_if_only_one_tab"] is not None:
             tabs["hide_if_only_one_tab"] = bool(appearance_updates["hide_tab_bar_if_only_one_tab"])
@@ -744,10 +916,16 @@ def _sync_loader_settings(
             st_sec["ssh_host"] = bool(appearance_updates["ssh_alert"])
         if "command_palette" in appearance_updates and appearance_updates["command_palette"] is not None:
             tabs["command_palette"] = bool(appearance_updates["command_palette"])
-        if "open_in_editor" in appearance_updates or "editor_cmd" in appearance_updates:
+        if "workspace_switcher" in appearance_updates and appearance_updates["workspace_switcher"] is not None:
+            tabs["workspace_switcher"] = bool(appearance_updates["workspace_switcher"])
+        if "session_manager" in appearance_updates and appearance_updates["session_manager"] is not None:
+            tabs["session_manager"] = bool(appearance_updates["session_manager"])
+        if "open_in_editor" in appearance_updates or "editor_cmd" in appearance_updates or "quick_select" in appearance_updates:
             hl = data.setdefault("hyperlinks", {})
             if "open_in_editor" in appearance_updates and appearance_updates["open_in_editor"] is not None:
                 hl["open_in_editor"] = bool(appearance_updates["open_in_editor"])
+            if "quick_select" in appearance_updates and appearance_updates["quick_select"] is not None:
+                hl["quick_select"] = bool(appearance_updates["quick_select"])
             if "editor_cmd" in appearance_updates:
                 ed = appearance_updates["editor_cmd"]
                 if not ed or ed == "Default":
@@ -940,6 +1118,8 @@ def apply_theme(
             "agent_indicators": merged_tabs.get("agent_indicators"),
             "ssh_alert": merged_tabs.get("ssh_alert"),
             "command_palette": merged_tabs.get("command_palette"),
+            "workspace_switcher": merged_tabs.get("workspace_switcher"),
+            "session_manager": merged_tabs.get("session_manager"),
         }
         if isinstance(user_fancy, bool):
             loader_app["use_fancy_tab_bar"] = user_fancy
@@ -958,11 +1138,13 @@ def apply_theme(
     if appearance_updates:
         for k, v in appearance_updates.items():
             if k in DEFAULT_APPEARANCE:
-                if k in ("color_scheme", "color_scheme_light", "editor_cmd") and (not v or v == "Default"):
+                if k in ("color_scheme", "color_scheme_light", "editor_cmd", "cursor_color", "front_end", "win32_backdrop") and (
+                    not v or str(v) in ("Default", "Auto", "off", "none")
+                ):
                     merged_app[k] = None
-                elif k == "use_fancy_tab_bar" and v == "auto":
+                elif k in ("use_fancy_tab_bar", "enable_wayland") and v == "auto":
                     merged_app[k] = None
-                elif k == "tab_max_width" and (v is None or int(v or 0) <= 0):
+                elif k in ("tab_max_width", "window_blur", "max_fps", "animation_fps") and (v is None or int(v or 0) <= 0):
                     merged_app[k] = None
                 else:
                     merged_app[k] = v

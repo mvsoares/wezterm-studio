@@ -15,9 +15,10 @@ It combines a fast **CLI**, an **ANSI TrueColor TUI**, and a **Local Web Studio*
 
 - 🎨 **62 Tab Bar Themes** across 6 curated categories (*Google & Material*, *Powerline & Geometry*, *Developer Palettes*, *Synth & Cyberpunk*, *Nature & Earth Tones*, and *Minimal, Badges & CRT*) — including dynamic **Scheme-Adaptive Powerline** (`#61`) and **Workspace Chameleon** (`#62`), OSC `9;4` progress & split/zoom indicators, mouse hover highlights, verified WCAG contrast, and configurable fixed tab width (`TAB_TITLE_LEN`).
 - ✦ **Tab Bar Symbol Builder** — mix active tab prefixes, CIE LCh hue-adaptive markers, Powerline/chevron arrows, and inactive tab indicators.
-- 🔤 **Live Font, Ligature & Nerd Font Picker** — automatically discovers installed monospace and Nerd Fonts via `wezterm ls-fonts`, FontConfig, CoreText, and DirectWrite, with independent family, weight, and size controls for **Editor** and **Tab Bar**, plus a 1-click HarfBuzz ligatures toggle (`calt`/`clig`/`liga`).
-- 🌈 **1,100+ Visual Color Scheme Swatches, Dark/Light Auto-Switching & Window Controls** — browse visual terminal swatch cards (`bg`, `fg`, `cursor`, 8 ANSI colors, Dark/Light filters) across Web Studio, TrueColor TUI (`[cs]`), and CLI (`--list-schemes`), plus optional theme-tinted Studio right-status bar, inactive split-pane dimming (`inactive_pane_hsb`), GPU `Oklab` radial gradients, and 1px theme-accented frame borders.
-- ⌨ **Native In-WezTerm Command Palette (`Ctrl+Shift+P`) & 1-Key Zen Mode** — switch across all 62 tab themes with inline ANSI swatches, toggle ephemeral **Presentation / Zen Mode** (`+4pt` font, hidden tab bar, `1.0` opacity, centered padding via `window:set_config_overrides`), step window opacity, toggle programming ligatures, or launch Browser Web Studio without leaving WezTerm.
+- 🔤 **Live Font, Ligature, Fallback & Nerd Font Picker** — automatically discovers installed monospace and Nerd Fonts via `wezterm ls-fonts`, FontConfig, CoreText, and DirectWrite, with independent family, weight, and size controls for **Editor** and **Tab Bar**, 1-click HarfBuzz ligatures toggle (`calt`/`clig`/`liga`), and automatic `Symbols Nerd Font Mono` + Emoji fallback chains.
+- 🌈 **1,100+ Visual Color Scheme Swatches, OLED Black, Frosted-Glass Blur & Window Controls** — browse visual terminal swatch cards (`bg`, `fg`, `cursor`, 8 ANSI colors, Dark/Light filters), 1-click **OLED `#000000` background** & custom cursor color overrides, cross-platform frosted-glass blur (`macOS`, `KDE`, `Windows 11 Acrylic/Mica`), optional theme-tinted Studio right-status bar, inactive split-pane dimming (`inactive_pane_hsb`), GPU `Oklab` radial gradients, and 1px theme-accented frame borders.
+- ⌨ **Native In-WezTerm Command Palette (`Ctrl+Shift+P`), Project Workspace Switcher & Session Snapshots** — switch across all 62 tab themes with inline ANSI swatches, fuzzy-jump across `zoxide` & Git project workspaces, **Save & Restore Workspace Session Snapshots** (`wezterm_session.json`), toggle ephemeral **Presentation / Zen Mode** (`+4pt` font, hidden tab bar, `1.0` opacity, centered padding), step window opacity, toggle ligatures, or launch Browser Web Studio without leaving WezTerm.
+- 🚀 **GPU Renderer / FPS Tuner & Quick Select Power Patterns** — configure `WebGpu` / `OpenGL` / `Software`, `max_fps`, `animation_fps`, Linux Wayland mode, and DevOps `quick_select_patterns` (`Ctrl+Shift+Space` for Git SHAs, UUIDs, IPs, K8s pods, and `file:line`), backed by smart CPU/renderer diagnostics in `wezterm-theme doctor`.
 - 🤖 **AI Coding Agent Radar & SSH/Production Danger Tint** — automatically badges tabs running AI coding CLIs (`Claude Code`, `Gemini CLI`, `Antigravity`, `Codex`, `Aider`, `OpenCode`, `Goose`, `Cline`, `Amp`) with `🤖` / `🤖●` + one-shot desktop completion notifications, and tints remote SSH tabs amber (`󰣀`) or production/root SSH sessions (`prod*`, `prd*`, `root@*`) crimson (`⚠ PROD`) so you never confuse production with local.
 - 💾 **Instant Backups & Portable JSON Presets** — automatic pre-validation via `wezterm` with rollback protection, timestamped backups, and OS-agnostic JSON presets shareable across Linux, macOS, and Windows.
 
@@ -131,9 +132,13 @@ wezterm-theme -s workspace-chameleon
 wezterm-theme --font "JetBrainsMono Nerd Font" --size 13.5 --tab-font "JetBrainsMono Nerd Font" --tab-size 11.5
 wezterm-theme --no-ligatures
 
-# Set Dark + Light companion schemes, status bar, inactive pane dimming, Oklab gradient & 1px accent border
-wezterm-theme --scheme "Catppuccin Mocha" --light-scheme "Catppuccin Latte" --opacity 0.95 --padding 10
-wezterm-theme --status-bar --dim-inactive 0.78 --gradient --border
+# Set Dark + Light companion schemes, OLED #000000 override, frosted-glass blur, status bar & Oklab gradient
+wezterm-theme --scheme "Catppuccin Mocha" --light-scheme "Catppuccin Latte" --oled --opacity 0.92 --blur 20 --padding 10
+wezterm-theme --status-bar --dim-inactive 0.78 --gradient --border --font-fallback
+
+# Tune GPU renderer, refresh rate, Quick Select patterns & inspect saved workspace sessions
+wezterm-theme --front-end WebGpu --max-fps 120 --quick-select
+wezterm-theme session status
 
 # Inspect installed fonts, visual scheme swatches, theme catalog, active status, or diagnostics
 wezterm-theme fonts --nerd
@@ -179,6 +184,11 @@ python3 -m unittest discover -s tests -v
 
 WezTerm Studio incorporates workflow, tab-bar, status-bar, command-palette, and appearance ideas shared across the WezTerm ecosystem:
 
+- **Community Ecosystem, GitHub Discussions & `r/wezterm` (`v1.4.0`):**
+  - **[`MLFlexer/smart_workspace_switcher.wezterm`](https://github.com/MLFlexer/smart_workspace_switcher.wezterm), [`mikkasendke/sessionizer.wezterm`](https://github.com/mikkasendke/sessionizer.wezterm) & [`michaelbrusegard/awesome-wezterm`](https://github.com/michaelbrusegard/awesome-wezterm):** zero-dependency fuzzy `zoxide` & Git repository workspace switcher integrated into WezTerm's `Ctrl+Shift+P` Command Palette.
+  - **[`MLFlexer/resurrect.wezterm`](https://github.com/MLFlexer/resurrect.wezterm) & [`YedPool/Wezurrect`](https://github.com/YedPool/Wezurrect):** lightweight cross-platform workspace, tab, and directory snapshot persistence (`Save` / `Restore` in `Ctrl+Shift+P` and `wezterm-theme session`).
+  - **[`@jaik3n`](https://github.com/jaik3n) ([WezTerm Discussion #7422 — *"Wezterm Theme Creator"*](https://github.com/wezterm/wezterm/discussions/7422)):** live browser-based OLED `#000000` background and custom WCAG-contrasted cursor color overrides on top of any scheme.
+  - **WezTerm Community on [`r/wezterm`](https://www.reddit.com/r/wezterm/), [`r/unixporn`](https://www.reddit.com/r/unixporn/) & [Discussion #628](https://github.com/wezterm/wezterm/discussions/628):** cross-platform frosted-glass blur (`macos_window_background_blur`, `kde_window_background_blur`, `win32_system_backdrop`), automatic `Symbols Nerd Font Mono` fallback chains, DevOps `quick_select_patterns`, and `WebGpu`/`OpenGL`/`Software` + Wayland FPS diagnostics.
 - **[WezTerm GitHub Discussion #628 (*"Show your wezterms"*)](https://github.com/wezterm/wezterm/discussions/628) & Ecosystem Plugins (`v1.3.0`):**
   - **[`@sravioli`](https://github.com/sravioli) ([`lantern.wz`](https://github.com/sravioli/lantern.wz)) & [`@itsWindi`](https://github.com/itsWindi):** native in-WezTerm `augment-command-palette` + fuzzy `InputSelector` theme switcher and visual terminal color-scheme swatch explorer.
   - **[`Eric162/wezterm-agent-deck`](https://github.com/Eric162/wezterm-agent-deck) & [`pro-vi/wezterm-attention`](https://github.com/pro-vi/wezterm-attention):** AI coding agent tab status radar (`Claude`, `Gemini`, `Codex`, `Aider`, `OpenCode`, `Goose`, `Cline`, `Amp`) and background completion desktop toast notifications.

@@ -93,6 +93,7 @@ def resolve_wezterm_paths() -> dict[str, Path]:
         "tab_theme_lua": cfg_dir / "tab_theme.lua",
         "studio_json": cfg_dir / "wezterm_theme.json",
         "studio_lua": cfg_dir / "wezterm_theme.lua",
+        "session_json": cfg_dir / "wezterm_session.json",
         "backup_dir": cfg_dir / "backups",
     }
 

@@ -104,8 +104,19 @@ class ThemeCatalogAndSymbolsTests(unittest.TestCase):
                 "font_family": "JetBrains Mono",
                 "font_size": 13,
                 "font_ligatures": False,
+                "font_fallback": True,
+                "tab_font_family": "Fira Code",
                 "color_scheme": "Catppuccin Mocha",
                 "color_scheme_light": "Catppuccin Latte",
+                "oled_black": True,
+                "cursor_color": "#60a5fa",
+                "window_blur": 24,
+                "win32_backdrop": "Mica",
+                "front_end": "WebGpu",
+                "max_fps": 120,
+                "animation_fps": 30,
+                "enable_wayland": True,
+                "quick_select": True,
                 "inactive_pane_brightness": 0.78,
                 "background_gradient": True,
                 "accent_border": True,
@@ -117,7 +128,19 @@ class ThemeCatalogAndSymbolsTests(unittest.TestCase):
         self.assertIn("pane.progress", lua)
         self.assertIn("pane.is_zoomed", lua)
         self.assertIn("harfbuzz_features", lua)
+        self.assertIn("wezterm.font_with_fallback", lua)
+        self.assertIn("Symbols Nerd Font Mono", lua)
         self.assertIn("Catppuccin Latte", lua)
+        self.assertIn("config.colors.background = '#000000'", lua)
+        self.assertIn("config.colors.cursor_bg = '#60a5fa'", lua)
+        self.assertIn("macos_window_background_blur = 24", lua)
+        self.assertIn("kde_window_background_blur = true", lua)
+        self.assertIn("win32_system_backdrop = 'Mica'", lua)
+        self.assertIn("front_end = 'WebGpu'", lua)
+        self.assertIn("max_fps = 120", lua)
+        self.assertIn("animation_fps = 30", lua)
+        self.assertIn("enable_wayland = true", lua)
+        self.assertIn("quick_select_patterns", lua)
         self.assertIn("inactive_pane_hsb", lua)
         self.assertIn("window_background_gradient", lua)
         self.assertIn("border_left_width = '1px'", lua)
@@ -301,8 +324,35 @@ class ThemeCatalogAndSymbolsTests(unittest.TestCase):
                 "assert(type(captured_toast) == 'string' and captured_toast:find('claude'), 'missing AI agent toast: ' .. tostring(captured_toast))",
                 "local intercepted = last_open_uri_cb(mock_win, mock_pane, 'editfile://src/wezterm_theme/core.py:42')",
                 "assert(intercepted == false and spawned_action ~= nil, 'open-uri failed to intercept editfile://')",
+                "local orig_ac = wezterm.action_callback",
+                "local captured_cbs = {}",
+                "wezterm.action_callback = function(fn) local u = orig_ac(fn); captured_cbs[tostring(u)] = fn; return u end",
+                f"wezterm.config_dir = [==[{Path(tmp).as_posix()}]==]",
+                f"wezterm.home_dir = [==[{Path(tmp).as_posix()}]==]",
+                "local spawned_ws = 0",
+                "local spawned_tabs = 0",
+                "wezterm.mux = {",
+                "  get_workspace_names = function() return { 'default' } end,",
+                "  all_windows = function() return {",
+                "    { get_workspace = function() return 'studio-ws' end, tabs = function() return {",
+                f"      {{ get_title = function() return 'api' end, active_pane = function() return {{ get_current_working_dir = function() return 'file://{Path(tmp).as_posix()}' end }} end }},",
+                f"      {{ get_title = function() return 'ui' end, active_pane = function() return {{ get_current_working_dir = function() return 'file://{Path(tmp).as_posix()}' end }} end }},",
+                "    } end },",
+                "  } end,",
+                "  spawn_window = function()",
+                "    spawned_ws = spawned_ws + 1",
+                "    spawned_tabs = spawned_tabs + 1",
+                "    return { set_title = function() end }, {}, { spawn_tab = function() spawned_tabs = spawned_tabs + 1; return { set_title = function() end } end }",
+                "  end,",
+                "}",
                 "local pal_entries = last_palette_cb(mock_win, mock_pane)",
-                "assert(type(pal_entries) == 'table' and #pal_entries == 5, 'expected 5 command palette entries, got ' .. tostring(#pal_entries))",
+                "assert(type(pal_entries) == 'table' and #pal_entries == 8, 'expected 8 command palette entries, got ' .. tostring(#pal_entries))",
+                "captured_cbs[tostring(pal_entries[2].action)](mock_win, mock_pane)",
+                "captured_cbs[tostring(pal_entries[3].action)](mock_win, mock_pane)",
+                "assert(captured_toast and captured_toast:find('Saved 2 tab'), 'session save failed: ' .. tostring(captured_toast))",
+                "captured_cbs[tostring(pal_entries[4].action)](mock_win, mock_pane)",
+                "assert(spawned_ws == 1 and spawned_tabs == 2, 'session restore failed: ws=' .. tostring(spawned_ws) .. ' tabs=' .. tostring(spawned_tabs))",
+                "wezterm.action_callback = orig_ac",
             ])
             harness_lines.append("wezterm.on = orig_on")
             harness_lines.append("return wezterm.config_builder()")
@@ -470,6 +520,18 @@ class StandaloneAndLoaderEngineTests(unittest.TestCase):
             "agent_indicators": False,
             "ssh_alert": False,
             "command_palette": False,
+            "font_fallback": True,
+            "oled_black": True,
+            "cursor_color": "#ff7edb",
+            "window_blur": 20,
+            "win32_backdrop": "Acrylic",
+            "front_end": "OpenGL",
+            "max_fps": 144,
+            "animation_fps": 15,
+            "enable_wayland": False,
+            "quick_select": True,
+            "workspace_switcher": False,
+            "session_manager": False,
         })
         self.assertTrue(ok, err)
 
@@ -481,10 +543,22 @@ class StandaloneAndLoaderEngineTests(unittest.TestCase):
         self.assertFalse(saved_settings["tabs"]["agent_indicators"])
         self.assertFalse(saved_settings["tabs"]["ssh_alert"])
         self.assertFalse(saved_settings["tabs"]["command_palette"])
+        self.assertFalse(saved_settings["tabs"]["workspace_switcher"])
+        self.assertFalse(saved_settings["tabs"]["session_manager"])
         self.assertEqual(saved_settings["font"]["size"], 15)
         self.assertFalse(saved_settings["font"]["ligatures"])
+        self.assertTrue(saved_settings["font"]["fallback"])
         self.assertEqual(saved_settings["colors"]["scheme"], "Monokai Vivid")
         self.assertEqual(saved_settings["colors"]["scheme_light"], "Builtin Light")
+        self.assertTrue(saved_settings["colors"]["oled_black"])
+        self.assertEqual(saved_settings["colors"]["cursor_color"], "#ff7edb")
+        self.assertEqual(saved_settings["window"]["blur"], 20)
+        self.assertEqual(saved_settings["window"]["win32_backdrop"], "Acrylic")
+        self.assertEqual(saved_settings["performance"]["front_end"], "OpenGL")
+        self.assertEqual(saved_settings["performance"]["max_fps"], 144)
+        self.assertEqual(saved_settings["performance"]["animation_fps"], 15)
+        self.assertFalse(saved_settings["display"]["enable_wayland"])
+        self.assertTrue(saved_settings["hyperlinks"]["quick_select"])
         self.assertEqual(saved_settings["window"]["inactive_pane_hsb"]["brightness"], 0.8)
         self.assertTrue(saved_settings["window"]["background_gradient"])
         self.assertTrue(saved_settings["window"]["accent_border"])
@@ -578,6 +652,10 @@ class StudioHTTPServerAndCLITests(unittest.TestCase):
             self.assertFalse(resp_app["state"]["appearance"]["font_ligatures"])
             self.assertTrue(resp_app["state"]["appearance"]["background_gradient"])
             self.assertTrue(resp_app["state"]["appearance"]["accent_border"])
+
+            sess_resp = json.loads(urllib.request.urlopen(f"{base}/api/session").read().decode("utf-8"))
+            self.assertTrue(sess_resp["ok"])
+            self.assertFalse(sess_resp["session"]["exists"])
         finally:
             httpd.shutdown()
             httpd.server_close()
@@ -607,6 +685,18 @@ class StudioHTTPServerAndCLITests(unittest.TestCase):
                 "--no-agent-radar",
                 "--no-ssh-alert",
                 "--no-command-palette",
+                "--font-fallback",
+                "--oled",
+                "--cursor-color", "#60a5fa",
+                "--blur", "22",
+                "--win32-backdrop", "Acrylic",
+                "--front-end", "Software",
+                "--max-fps", "120",
+                "--animation-fps", "30",
+                "--no-wayland",
+                "--quick-select",
+                "--no-workspace-switcher",
+                "--no-session-manager",
             ])
         self.assertEqual(rc, 0)
         st = get_current_state()
@@ -614,7 +704,19 @@ class StudioHTTPServerAndCLITests(unittest.TestCase):
         self.assertEqual(st["tab_title_len"], 14)
         self.assertEqual(st["appearance"]["font_family"], "JetBrains Mono")
         self.assertFalse(st["appearance"]["font_ligatures"])
+        self.assertTrue(st["appearance"]["font_fallback"])
         self.assertEqual(st["appearance"]["color_scheme_light"], "Catppuccin Latte")
+        self.assertTrue(st["appearance"]["oled_black"])
+        self.assertEqual(st["appearance"]["cursor_color"], "#60a5fa")
+        self.assertEqual(st["appearance"]["window_blur"], 22)
+        self.assertEqual(st["appearance"]["win32_backdrop"], "Acrylic")
+        self.assertEqual(st["appearance"]["front_end"], "Software")
+        self.assertEqual(st["appearance"]["max_fps"], 120)
+        self.assertEqual(st["appearance"]["animation_fps"], 30)
+        self.assertFalse(st["appearance"]["enable_wayland"])
+        self.assertTrue(st["appearance"]["quick_select"])
+        self.assertFalse(st["appearance"]["workspace_switcher"])
+        self.assertFalse(st["appearance"]["session_manager"])
         self.assertAlmostEqual(st["appearance"]["inactive_pane_brightness"], 0.78)
         self.assertTrue(st["appearance"]["background_gradient"])
         self.assertTrue(st["appearance"]["accent_border"])
@@ -641,6 +743,27 @@ class StudioHTTPServerAndCLITests(unittest.TestCase):
         with redirect_stdout(buf):
             rc = cli_main(["doctor"])
         self.assertEqual(rc, 0)
+        self.assertIn("front_end='Software'", buf.getvalue())
+
+        (self.tmp_path / "wezterm_session.json").write_text(
+            json.dumps({
+                "schema": "wezterm-studio-session/v1",
+                "saved_at": "2026-11-20T19:30:00",
+                "active_workspace": "wezterm-studio",
+                "workspaces": [{"name": "wezterm-studio", "tabs": [{"title": "dev", "cwd": "/tmp"}]}],
+            }),
+            encoding="utf-8",
+        )
+        sess_buf = io.StringIO()
+        with redirect_stdout(sess_buf):
+            rc = cli_main(["session", "status"])
+        self.assertEqual(rc, 0)
+        self.assertIn("wezterm-studio", sess_buf.getvalue())
+
+        with redirect_stdout(sess_buf):
+            rc = cli_main(["session", "clear"])
+        self.assertEqual(rc, 0)
+        self.assertFalse((self.tmp_path / "wezterm_session.json").exists())
 
     def test_detect_user_config_conflicts(self) -> None:
         from wezterm_theme.core import detect_user_config_conflicts

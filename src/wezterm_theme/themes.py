@@ -1633,10 +1633,24 @@ def _emit_appearance_lua(
 
     font_family = appearance.get("font_family")
     font_weight = appearance.get("font_weight") or "Regular"
+    use_fallback = bool(appearance.get("font_fallback"))
     if font_family:
-        lines.append(
-            f"  config.font = wezterm.font({_lua_str(str(font_family))}, {{ weight = {_lua_str(str(font_weight))} }})"
-        )
+        if use_fallback:
+            lines.extend([
+                "  config.font = wezterm.font_with_fallback({",
+                f"    {{ family = {_lua_str(str(font_family))}, weight = {_lua_str(str(font_weight))} }},",
+                "    'Symbols Nerd Font Mono',",
+                "    'JetBrains Mono',",
+                "    'Noto Color Emoji',",
+                "  })",
+                "  config.warn_about_missing_glyphs = false",
+            ])
+        else:
+            lines.append(
+                f"  config.font = wezterm.font({_lua_str(str(font_family))}, {{ weight = {_lua_str(str(font_weight))} }})"
+            )
+    elif use_fallback:
+        lines.append("  config.warn_about_missing_glyphs = false")
     if appearance.get("font_size") is not None:
         lines.append(f"  config.font_size = {float(appearance['font_size']):g}")
     if appearance.get("line_height") is not None:
@@ -1661,8 +1675,41 @@ def _emit_appearance_lua(
     elif has_dark_scheme:
         lines.append(f"  config.color_scheme = {_lua_str(str(scheme))}")
 
+    if appearance.get("oled_black"):
+        lines.extend([
+            "  do",
+            "    local _oled_dark = ((wezterm.gui and wezterm.gui.get_appearance and wezterm.gui.get_appearance()) or 'Dark'):find('Dark') ~= nil",
+            "    if _oled_dark then",
+            "      config.colors = config.colors or {}",
+            "      config.colors.background = '#000000'",
+            "    end",
+            "  end",
+        ])
+
+    cur_col = appearance.get("cursor_color")
+    if isinstance(cur_col, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", cur_col.strip()):
+        chx = cur_col.strip().lower()
+        cur_fg = "#111827" if contrast_ratio(chx, "#111827") >= contrast_ratio(chx, "#ffffff") else "#ffffff"
+        lines.extend([
+            "  config.colors = config.colors or {}",
+            f"  config.colors.cursor_bg = {_lua_str(chx)}",
+            f"  config.colors.cursor_border = {_lua_str(chx)}",
+            f"  config.colors.cursor_fg = {_lua_str(cur_fg)}",
+        ])
+
     if appearance.get("window_opacity") is not None:
         lines.append(f"  config.window_background_opacity = {float(appearance['window_opacity']):g}")
+
+    blur_val = appearance.get("window_blur")
+    w32_bd = appearance.get("win32_backdrop")
+    if blur_val is not None and int(blur_val) > 0:
+        b_int = max(0, min(100, int(blur_val)))
+        lines.append(f"  config.macos_window_background_blur = {b_int}")
+        lines.append("  config.kde_window_background_blur = true")
+        if not w32_bd or w32_bd == "Auto":
+            lines.append("  config.win32_system_backdrop = 'Acrylic'")
+    if w32_bd and w32_bd not in ("Auto", "Default"):
+        lines.append(f"  config.win32_system_backdrop = {_lua_str(str(w32_bd))}")
 
     pad = appearance.get("window_padding")
     if isinstance(pad, (int, float)):
@@ -1710,11 +1757,46 @@ def _emit_appearance_lua(
     if tab_font or tab_size is not None:
         lines.append("  config.window_frame = config.window_frame or {}")
         if tab_font:
-            lines.append(
-                f"  config.window_frame.font = wezterm.font({_lua_str(str(tab_font))}, {{ weight = {_lua_str(str(tab_weight))} }})"
-            )
+            if use_fallback:
+                lines.extend([
+                    "  config.window_frame.font = wezterm.font_with_fallback({",
+                    f"    {{ family = {_lua_str(str(tab_font))}, weight = {_lua_str(str(tab_weight))} }},",
+                    "    'Symbols Nerd Font Mono',",
+                    "    'JetBrains Mono',",
+                    "  })",
+                ])
+            else:
+                lines.append(
+                    f"  config.window_frame.font = wezterm.font({_lua_str(str(tab_font))}, {{ weight = {_lua_str(str(tab_weight))} }})"
+                )
         if tab_size is not None:
             lines.append(f"  config.window_frame.font_size = {float(tab_size):g}")
+
+    fe = appearance.get("front_end")
+    if fe and fe in ("WebGpu", "OpenGL", "Software"):
+        lines.append(f"  config.front_end = {_lua_str(str(fe))}")
+    if appearance.get("max_fps") is not None and int(appearance["max_fps"] or 0) > 0:
+        lines.append(f"  config.max_fps = {max(15, min(240, int(appearance['max_fps'])))}")
+    if appearance.get("animation_fps") is not None and int(appearance["animation_fps"] or 0) > 0:
+        lines.append(f"  config.animation_fps = {max(1, min(240, int(appearance['animation_fps'])))}")
+    if appearance.get("enable_wayland") is not None:
+        lines.append(f"  config.enable_wayland = {'true' if appearance['enable_wayland'] else 'false'}")
+
+    if appearance.get("quick_select"):
+        lines.extend([
+            "  config.quick_select_patterns = config.quick_select_patterns or {}",
+            "  for _, _pat in ipairs({",
+            "    [[\\b[0-9a-f]{7,40}\\b]],",
+            "    [[\\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\b]],",
+            "    [[\\b(?:\\d{1,3}\\.){3}\\d{1,3}(?::\\d{1,5})?\\b]],",
+            "    [[\\bv?\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?\\b]],",
+            "    [[#[0-9a-fA-F]{6}\\b]],",
+            "    [[\\b(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+(?::\\d+)?\\b]],",
+            "    [[\\b[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?-[a-z0-9]{5,10}-[a-z0-9]{5}\\b]],",
+            "  }) do",
+            "    table.insert(config.quick_select_patterns, _pat)",
+            "  end",
+        ])
 
     if appearance.get("background_gradient"):
         lines.extend([
@@ -1722,7 +1804,7 @@ def _emit_appearance_lua(
             "    local _g_dark = ((wezterm.gui and wezterm.gui.get_appearance and wezterm.gui.get_appearance()) or 'Dark'):find('Dark') ~= nil",
             "    local _g_schemes = (wezterm.color and wezterm.color.get_builtin_schemes and wezterm.color.get_builtin_schemes()) or {}",
             "    local _g_active = _g_schemes[config.color_scheme or ''] or {}",
-            f"    local _g_base_hex = _g_active.background or {_lua_str(bg_bar)}",
+            f"    local _g_base_hex = (config.colors and config.colors.background) or _g_active.background or {_lua_str(bg_bar)}",
             "    local _g_ok, _g_base = pcall(wezterm.color.parse, _g_base_hex)",
             "    if _g_ok and _g_base then",
             "      local _g_edge = _g_dark and _g_base:lighten(0.06) or _g_base:darken(0.06)",
@@ -1989,8 +2071,11 @@ def _emit_editor_hyperlinks_lua(editor_cmd: str | None = None) -> list[str]:
     ]
 
 
-def _emit_command_palette_module_fn() -> list[str]:
-    """Emit M.command_palette_entries(config, wezterm) for Ctrl+Shift+P Studio & Zen controls."""
+def _emit_command_palette_module_fn(
+    enable_ws_switcher: bool = True,
+    enable_session_mgr: bool = True,
+) -> list[str]:
+    """Emit M.command_palette_entries(config, wezterm) for Ctrl+Shift+P Studio, Workspaces, Sessions & Zen."""
     choice_rows: list[str] = []
     for th in THEMES:
         sw = [p["bg"] for p in th["palette"][:4]]
@@ -2000,6 +2085,225 @@ def _emit_command_palette_module_fn() -> list[str]:
         choice_rows.append(
             f"    {{ id = '{th['id']}', sw = {{ '{sw[0]}', '{sw[1]}', '{sw[2]}', '{sw[3]}' }}, text = {_lua_str(label_txt)} }},"
         )
+
+    ws_entries: list[str] = []
+    if enable_ws_switcher:
+        ws_entries = [
+            "    {",
+            "      brief = 'WezTerm Studio: Switch / Open Project Workspace (zoxide & Git)',",
+            "      icon = 'md_folder_open',",
+            "      action = wezterm.action_callback(function(window, pane)",
+            "        local seen = {}",
+            "        local choices = {}",
+            "        local home = (wezterm.home_dir or os.getenv('HOME') or os.getenv('USERPROFILE') or ''):gsub('\\\\', '/'):gsub('/+$', '')",
+            "        local function short_path(p)",
+            "          local norm = p:gsub('\\\\', '/'):gsub('/+$', '')",
+            "          if home ~= '' and norm:sub(1, #home) == home then return '~' .. norm:sub(#home + 1) end",
+            "          return norm",
+            "        end",
+            "        local active_ws = (window.active_workspace and window:active_workspace()) or 'default'",
+            "        local ok_ws, ws_list = pcall(function()",
+            "          return (wezterm.mux and wezterm.mux.get_workspace_names and wezterm.mux.get_workspace_names()) or {}",
+            "        end)",
+            "        if ok_ws and type(ws_list) == 'table' then",
+            "          for _, ws in ipairs(ws_list) do",
+            "            seen['ws:' .. ws] = true",
+            "            local tag = (ws == active_ws) and ' (active)' or ''",
+            "            table.insert(choices, {",
+            "              id = 'ws:' .. ws,",
+            "              label = wezterm.format {",
+            "                { Foreground = { Color = '#34d399' } }, { Text = '󱂬  ' },",
+            "                { Attribute = { Intensity = 'Bold' } }, { Text = ws .. tag },",
+            "                'ResetAttributes',",
+            "                { Foreground = { Color = '#94a3b8' } }, { Text = '  [workspace]' },",
+            "              },",
+            "            })",
+            "          end",
+            "        end",
+            "        local function add_dir(raw_p, source_tag)",
+            "          if not raw_p or raw_p == '' then return end",
+            "          local norm = raw_p:gsub('\\\\', '/'):gsub('/+$', '')",
+            "          if norm == '' or seen[norm] then return end",
+            "          seen[norm] = true",
+            "          local base = norm:match('([^/]+)$') or norm",
+            "          table.insert(choices, {",
+            "            id = 'dir:' .. norm,",
+            "            label = wezterm.format {",
+            "              { Foreground = { Color = '#60a5fa' } }, { Text = '📁 ' },",
+            "              { Attribute = { Intensity = 'Bold' } }, { Text = base },",
+            "              'ResetAttributes',",
+            "              { Foreground = { Color = '#94a3b8' } }, { Text = '  ' .. short_path(norm) .. ' (' .. source_tag .. ')' },",
+            "            },",
+            "          })",
+            "        end",
+            "        local ok_z, z_ok, z_out = pcall(wezterm.run_child_process, { 'zoxide', 'query', '-l' })",
+            "        if ok_z and z_ok and type(z_out) == 'string' then",
+            "          local count = 0",
+            "          for line in z_out:gmatch('[^\\r\\n]+') do",
+            "            add_dir(line, 'zoxide')",
+            "            count = count + 1",
+            "            if count >= 50 then break end",
+            "          end",
+            "        end",
+            "        if home ~= '' and wezterm.read_dir then",
+            "          local roots = { 'projetos', 'projects', 'code', 'dev', 'src', 'workspace', 'repos', 'GitHub' }",
+            "          for _, r in ipairs(roots) do",
+            "            local ok_d, entries = pcall(wezterm.read_dir, home .. '/' .. r)",
+            "            if ok_d and type(entries) == 'table' then",
+            "              table.sort(entries)",
+            "              for _, entry in ipairs(entries) do",
+            "                local b = entry:gsub('\\\\', '/'):match('([^/]+)$') or ''",
+            "                if b ~= '' and b:sub(1, 1) ~= '.' then add_dir(entry, r) end",
+            "              end",
+            "            end",
+            "          end",
+            "        end",
+            "        window:perform_action(",
+            "          act.InputSelector {",
+            "            title = '✦ WezTerm Studio — Switch or Spawn Project Workspace',",
+            "            choices = choices,",
+            "            fuzzy = true,",
+            "            fuzzy_description = 'Fuzzy project or workspace: ',",
+            "            action = wezterm.action_callback(function(win, p, id)",
+            "              if not id then return end",
+            "              local ws_only = id:match('^ws:(.+)$')",
+            "              if ws_only then",
+            "                win:perform_action(act.SwitchToWorkspace { name = ws_only }, p)",
+            "                return",
+            "              end",
+            "              local target_dir = id:match('^dir:(.+)$')",
+            "              if target_dir then",
+            "                local ws_name = target_dir:match('([^/]+)$') or target_dir",
+            "                win:perform_action(act.SwitchToWorkspace { name = ws_name, spawn = { cwd = target_dir } }, p)",
+            "              end",
+            "            end),",
+            "          },",
+            "          pane",
+            "        )",
+            "      end),",
+            "    },",
+        ]
+
+    session_entries: list[str] = []
+    if enable_session_mgr:
+        session_entries = [
+            "    {",
+            "      brief = 'WezTerm Studio: Save Workspace Session Snapshot',",
+            "      icon = 'md_content_save',",
+            "      action = wezterm.action_callback(function(window, _pane)",
+            "        local enc = (wezterm.serde and wezterm.serde.json_encode) or wezterm.json_encode",
+            "        if not enc or not wezterm.mux or not wezterm.mux.all_windows then return end",
+            "        local base_dir = (wezterm.config_dir and wezterm.config_dir ~= '') and wezterm.config_dir or ((wezterm.home_dir or '') .. '/.config/wezterm')",
+            "        local snap_path = base_dir:gsub('\\\\', '/'):gsub('/+$', '') .. '/wezterm_session.json'",
+            "        local workspaces = {}",
+            "        local ws_order = {}",
+            "        local total_tabs = 0",
+            "        for _, mw in ipairs(wezterm.mux.all_windows()) do",
+            "          local ws = (mw.get_workspace and mw:get_workspace()) or 'default'",
+            "          if not workspaces[ws] then",
+            "            workspaces[ws] = { name = ws, tabs = {} }",
+            "            table.insert(ws_order, ws)",
+            "          end",
+            "          local tlist = (mw.tabs and mw:tabs()) or {}",
+            "          for _, mtab in ipairs(tlist) do",
+            "            local ap = mtab.active_pane and mtab:active_pane() or nil",
+            "            local cwd = ''",
+            "            if ap and ap.get_current_working_dir then",
+            "              local ok_c, u = pcall(function() return ap:get_current_working_dir() end)",
+            "              if ok_c and u then",
+            "                cwd = type(u) == 'string' and u:gsub('^file://[^/]*', '') or (u.file_path or '')",
+            "                cwd = cwd:gsub('^/([A-Za-z]:)', '%1')",
+            "              end",
+            "            end",
+            "            local title = (mtab.get_title and mtab:get_title()) or ''",
+            "            table.insert(workspaces[ws].tabs, { title = title, cwd = cwd })",
+            "            total_tabs = total_tabs + 1",
+            "          end",
+            "        end",
+            "        local payload_ws = {}",
+            "        for _, ws in ipairs(ws_order) do table.insert(payload_ws, workspaces[ws]) end",
+            "        local payload = {",
+            "          schema = 'wezterm-studio-session/v1',",
+            "          saved_at = wezterm.strftime('%Y-%m-%dT%H:%M:%S'),",
+            "          active_workspace = (window.active_workspace and window:active_workspace()) or 'default',",
+            "          workspaces = payload_ws,",
+            "        }",
+            "        local f = io.open(snap_path, 'w')",
+            "        if f then",
+            "          f:write(enc(payload))",
+            "          f:close()",
+            "          if window.toast_notification then",
+            "            window:toast_notification('WezTerm Studio', string.format('Saved %d tab(s) across %d workspace(s)', total_tabs, #payload_ws), nil, 3500)",
+            "          end",
+            "        end",
+            "      end),",
+            "    },",
+            "    {",
+            "      brief = 'WezTerm Studio: Restore Saved Workspace Session',",
+            "      icon = 'md_restore',",
+            "      action = wezterm.action_callback(function(window, pane)",
+            "        local dec = (wezterm.serde and wezterm.serde.json_decode) or wezterm.json_parse",
+            "        if not dec or not wezterm.mux or not wezterm.mux.spawn_window then return end",
+            "        local base_dir = (wezterm.config_dir and wezterm.config_dir ~= '') and wezterm.config_dir or ((wezterm.home_dir or '') .. '/.config/wezterm')",
+            "        local snap_path = base_dir:gsub('\\\\', '/'):gsub('/+$', '') .. '/wezterm_session.json'",
+            "        local f = io.open(snap_path, 'r')",
+            "        if not f then",
+            "          if window.toast_notification then",
+            "            window:toast_notification('WezTerm Studio', 'No saved session snapshot found yet', nil, 3500)",
+            "          end",
+            "          return",
+            "        end",
+            "        local raw = f:read('*a')",
+            "        f:close()",
+            "        local ok_d, data = pcall(dec, raw)",
+            "        if not ok_d or type(data) ~= 'table' or type(data.workspaces) ~= 'table' then return end",
+            "        local existing = {}",
+            "        local ok_w, cur_ws = pcall(function() return wezterm.mux.get_workspace_names() end)",
+            "        if ok_w and type(cur_ws) == 'table' then",
+            "          for _, n in ipairs(cur_ws) do existing[n] = true end",
+            "        end",
+            "        local restored_ws = 0",
+            "        local restored_tabs = 0",
+            "        local first_ws = nil",
+            "        for _, ws_obj in ipairs(data.workspaces) do",
+            "          local wname = ws_obj.name or 'default'",
+            "          local tabs = ws_obj.tabs or {}",
+            "          if #tabs > 0 and not existing[wname] then",
+            "            first_ws = first_ws or wname",
+            "            local first_cwd = (tabs[1].cwd and tabs[1].cwd ~= '') and tabs[1].cwd or nil",
+            "            local ok_sp, t1, _p1, mwin = pcall(wezterm.mux.spawn_window, { workspace = wname, cwd = first_cwd })",
+            "            if ok_sp and mwin then",
+            "              restored_ws = restored_ws + 1",
+            "              restored_tabs = restored_tabs + 1",
+            "              if t1 and tabs[1].title and tabs[1].title ~= '' and t1.set_title then",
+            "                pcall(function() t1:set_title(tabs[1].title) end)",
+            "              end",
+            "              for idx = 2, #tabs do",
+            "                local tc = (tabs[idx].cwd and tabs[idx].cwd ~= '') and tabs[idx].cwd or nil",
+            "                local ok_t, nt = pcall(function() return mwin:spawn_tab { cwd = tc } end)",
+            "                if ok_t and nt then",
+            "                  restored_tabs = restored_tabs + 1",
+            "                  if tabs[idx].title and tabs[idx].title ~= '' and nt.set_title then",
+            "                    pcall(function() nt:set_title(tabs[idx].title) end)",
+            "                  end",
+            "                end",
+            "              end",
+            "            end",
+            "          else",
+            "            first_ws = first_ws or wname",
+            "          end",
+            "        end",
+            "        local target_ws = data.active_workspace or first_ws",
+            "        if target_ws then",
+            "          window:perform_action(act.SwitchToWorkspace { name = target_ws }, pane)",
+            "        end",
+            "        if window.toast_notification then",
+            "          window:toast_notification('WezTerm Studio', string.format('Restored %d tab(s) across %d workspace(s)', restored_tabs, restored_ws), nil, 3500)",
+            "        end",
+            "      end),",
+            "    },",
+        ]
+
     return [
         "local _wt_catalog = {",
         *choice_rows,
@@ -2047,6 +2351,8 @@ def _emit_command_palette_module_fn() -> list[str]:
         "        )",
         "      end),",
         "    },",
+        *ws_entries,
+        *session_entries,
         "    {",
         "      brief = 'WezTerm Studio: Toggle Zen / Presentation Mode (+4pt, distraction-free)',",
         "      icon = 'md_meditation',",
@@ -2149,6 +2455,8 @@ def generate_lua_for_theme(
     enable_agent_radar = True if not appearance or appearance.get("agent_indicators") is not False else False
     enable_ssh_alert = True if not appearance or appearance.get("ssh_alert") is not False else False
     enable_cmd_palette = True if not appearance or appearance.get("command_palette") is not False else False
+    enable_ws_switcher = True if not appearance or appearance.get("workspace_switcher") is not False else False
+    enable_session_mgr = True if not appearance or appearance.get("session_manager") is not False else False
 
     lua: list[str] = [
         "-- Auto-generated by wezterm-theme (WezTerm Studio)",
@@ -2158,7 +2466,14 @@ def generate_lua_for_theme(
         "",
         "local M = {}",
         "",
-        *(_emit_command_palette_module_fn() if enable_cmd_palette else []),
+        *(
+            _emit_command_palette_module_fn(
+                enable_ws_switcher=enable_ws_switcher,
+                enable_session_mgr=enable_session_mgr,
+            )
+            if enable_cmd_palette
+            else []
+        ),
         "function M.apply(config, wezterm)",
     ]
 

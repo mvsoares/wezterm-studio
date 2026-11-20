@@ -74,6 +74,7 @@
     }
     .init-banner {
       display: none;
+      flex-wrap: wrap;
       align-items: center;
       gap: 10px;
       background: rgba(251, 191, 36, 0.12);
@@ -98,6 +99,8 @@
       font-weight: 700;
       font-size: 0.76rem;
       cursor: pointer;
+      flex-shrink: 0;
+      white-space: nowrap;
     }
 
     /* Quick Font & Theme Strip */
@@ -240,13 +243,20 @@
     }
     .search-input:focus { border-color: var(--accent); }
     .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
       background: var(--panel2);
       color: var(--text);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 7px 13px;
-      font-size: 0.82rem;
+      padding: 7px 12px;
+      font-size: 0.81rem;
       font-weight: 600;
+      line-height: 1.2;
+      white-space: nowrap;
+      flex-shrink: 0;
       cursor: pointer;
       transition: all 0.15s;
     }
@@ -346,7 +356,7 @@
     /* ── Tab Themes Grid ── */
     .themes-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(540px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(min(100%, 500px), 1fr));
       gap: 14px;
     }
     .theme-card {
@@ -357,6 +367,7 @@
       display: flex;
       flex-direction: column;
       gap: 10px;
+      min-width: 0;
       transition: border-color 0.15s;
     }
     .theme-card:hover { border-color: #475569; }
@@ -366,6 +377,7 @@
     }
     .tc-head {
       display: flex;
+      flex-wrap: wrap;
       justify-content: space-between;
       align-items: center;
       gap: 8px;
@@ -380,6 +392,8 @@
       font-weight: 700;
       padding: 2px 8px;
       border-radius: 999px;
+      flex-shrink: 0;
+      white-space: nowrap;
     }
     .swatches {
       display: flex;
@@ -411,6 +425,7 @@
     .tc-desc { color: var(--sub); font-size: 0.82rem; line-height: 1.4; }
     .tc-foot {
       display: flex;
+      flex-wrap: wrap;
       justify-content: space-between;
       align-items: center;
       gap: 8px;
@@ -424,12 +439,16 @@
       padding: 4px 8px;
       font-size: 0.76rem;
       color: #93c5fd;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     /* ── Fonts Grid ── */
     .fonts-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(430px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(min(100%, 400px), 1fr));
       gap: 14px;
     }
     .font-card {
@@ -440,11 +459,13 @@
       display: flex;
       flex-direction: column;
       gap: 10px;
+      min-width: 0;
     }
     .font-card.is-editor { border-color: var(--accent); }
     .font-card.is-tab { box-shadow: inset 0 0 0 1px var(--purple); }
     .fc-head {
       display: flex;
+      flex-wrap: wrap;
       justify-content: space-between;
       align-items: center;
       gap: 8px;
@@ -483,15 +504,16 @@
     }
     .fc-actions {
       display: flex;
+      flex-wrap: wrap;
       gap: 8px;
       margin-top: auto;
     }
-    .fc-actions button { flex: 1; }
+    .fc-actions button { flex: 1 1 130px; }
 
     /* ── Color Scheme Visual Swatch Grid ── */
     .schemes-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(min(100%, 310px), 1fr));
       gap: 14px;
     }
     .scheme-card {
@@ -502,6 +524,7 @@
       display: flex;
       flex-direction: column;
       gap: 10px;
+      min-width: 0;
       transition: border-color 0.15s, transform 0.12s;
     }
     .scheme-card:hover { border-color: #3f4b66; }
@@ -512,6 +535,7 @@
       justify-content: space-between;
       align-items: center;
       gap: 8px;
+      min-width: 0;
     }
     .sc-name {
       font-weight: 700;
@@ -519,6 +543,7 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      min-width: 0;
     }
     .sc-badges { display: flex; gap: 5px; align-items: center; flex-shrink: 0; }
     .sc-mode {
@@ -551,15 +576,16 @@
     }
     .sc-foot {
       display: flex;
+      flex-wrap: wrap;
       gap: 6px;
       margin-top: auto;
     }
-    .sc-foot button { flex: 1; font-size: 0.76rem; padding: 6px 8px; }
+    .sc-foot button { flex: 1 1 115px; font-size: 0.76rem; padding: 6px 8px; }
 
     /* ── Appearance & Settings Cards ── */
     .settings-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr));
       gap: 16px;
     }
     .s-card {
@@ -570,6 +596,8 @@
       display: flex;
       flex-direction: column;
       gap: 14px;
+      min-width: 0;
+      overflow: hidden;
     }
     .s-card h3 {
       font-size: 0.95rem;
@@ -582,20 +610,113 @@
       justify-content: space-between;
       align-items: center;
       gap: 12px;
-      font-size: 0.85rem;
+      font-size: 0.84rem;
+      min-width: 0;
     }
-    .s-row label { color: var(--sub); }
-    .s-row input[type="number"],
-    .s-row input[type="text"],
-    .s-row select {
+    .s-row > label {
+      color: var(--sub);
+      flex: 1 1 auto;
+      min-width: 0;
+      line-height: 1.35;
+    }
+    .s-row > strong {
+      min-width: 0;
+      max-width: 56%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-align: right;
+    }
+    .s-row > input[type="number"] {
+      width: 92px;
+      min-width: 0;
+      flex-shrink: 0;
+      background: var(--panel2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 0.83rem;
+      text-align: right;
+    }
+    .s-row > select {
+      max-width: 205px;
+      min-width: 0;
+      flex-shrink: 1;
+      background: var(--panel2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 0.82rem;
+    }
+    .s-row > input[type="range"] {
+      width: 136px;
+      max-width: 44%;
+      min-width: 80px;
+      flex-shrink: 0;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+    .s-row > input[type="checkbox"] {
+      width: 17px;
+      height: 17px;
+      flex-shrink: 0;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+    .s-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 0;
+    }
+    .s-field > label {
+      color: var(--sub);
+      font-size: 0.82rem;
+      line-height: 1.3;
+    }
+    .s-action-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+      min-width: 0;
+    }
+    .s-action-row input[type="text"] {
+      flex: 1 1 0;
+      width: 0;
+      min-width: 0;
       background: var(--panel2);
       color: var(--text);
       border: 1px solid var(--border);
       border-radius: 6px;
       padding: 6px 9px;
       font-size: 0.83rem;
-      min-width: 180px;
+      outline: none;
     }
+    .s-action-row input[type="text"]:focus { border-color: var(--accent); }
+    .s-action-row input[type="color"] {
+      width: 34px;
+      height: 32px;
+      padding: 2px;
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .perf-warn {
+      display: none;
+      background: rgba(251, 191, 36, 0.12);
+      border: 1px solid rgba(251, 191, 36, 0.45);
+      color: var(--amber);
+      border-radius: 8px;
+      padding: 8px 11px;
+      font-size: 0.78rem;
+      line-height: 1.4;
+    }
+    .perf-warn.visible { display: block; }
     .chips-wrap {
       display: flex;
       flex-wrap: wrap;
@@ -629,11 +750,16 @@
       justify-content: space-between;
       align-items: center;
       gap: 10px;
+      min-width: 0;
       background: var(--bg);
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 10px 12px;
       font-size: 0.82rem;
+    }
+    .bkp-item > div {
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
     .preset-area {
       width: 100%;
@@ -807,6 +933,10 @@
             <label for="ligaturesPaneCheck">Programming ligatures (<code>calt</code> / <code>liga</code>)</label>
             <input id="ligaturesPaneCheck" type="checkbox" checked>
           </div>
+          <div class="s-row">
+            <label for="fontFallbackCheck" title="Wraps Editor & Tab fonts with Symbols Nerd Font Mono + Noto Color Emoji fallback so non-Nerd fonts never show broken icons">Auto Nerd Font &amp; Emoji fallback chain</label>
+            <input id="fontFallbackCheck" type="checkbox">
+          </div>
         </div>
 
         <div class="s-card">
@@ -854,25 +984,38 @@
       <div class="settings-grid">
         <div class="s-card">
           <h3>🎨 Terminal Color Scheme</h3>
-          <div class="s-row">
+          <div class="s-field">
             <label for="schemeInput">Active (Dark) scheme</label>
-            <div style="display:flex;gap:6px;flex:1;justify-content:flex-end;">
+            <div class="s-action-row">
               <input id="schemeInput" list="schemesDatalist" type="text" placeholder="e.g. Monokai Vivid, Catppuccin Mocha...">
               <datalist id="schemesDatalist"></datalist>
               <button class="btn btn-primary" id="applySchemeBtn">Apply</button>
               <button class="btn" id="resetSchemeBtn" title="Reset to WezTerm default">Default</button>
             </div>
           </div>
-          <div class="s-row">
-            <label for="lightSchemeInput" title="Automatically switched via wezterm.gui.get_appearance() when your OS is in Light mode">Light-mode scheme</label>
-            <div style="display:flex;gap:6px;flex:1;justify-content:flex-end;">
+          <div class="s-field">
+            <label for="lightSchemeInput" title="Automatically switched via wezterm.gui.get_appearance() when your OS is in Light mode">Light-mode companion scheme</label>
+            <div class="s-action-row">
               <input id="lightSchemeInput" list="schemesDatalist" type="text" placeholder="Optional (e.g. Catppuccin Latte)...">
               <button class="btn btn-primary" id="applyLightSchemeBtn">Apply</button>
               <button class="btn" id="resetLightSchemeBtn" title="Disable Light-mode override">Clear</button>
             </div>
           </div>
+          <div class="s-row">
+            <label for="oledBlackCheck" title="Overrides dark-mode terminal background to #000000 while keeping your color scheme's syntax palette">OLED pitch-black background (<code>#000000</code>)</label>
+            <input id="oledBlackCheck" type="checkbox">
+          </div>
+          <div class="s-field">
+            <label for="cursorColorInput" title="Override terminal cursor_bg & cursor_border with automatic WCAG text contrast">Custom cursor color override</label>
+            <div class="s-action-row">
+              <input id="cursorColorPicker" type="color" value="#60a5fa" title="Pick cursor color">
+              <input id="cursorColorInput" type="text" placeholder="Scheme default (or #60a5fa)">
+              <button class="btn btn-primary" id="applyCursorColorBtn">Apply</button>
+              <button class="btn" id="resetCursorColorBtn" title="Use scheme default cursor">Default</button>
+            </div>
+          </div>
           <div>
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;">
+            <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;">
               <span style="font-size:0.76rem;color:var(--sub);">Quick favorites (1-click):</span>
               <button class="btn btn-purple" id="openSchemesBrowserBtn" style="font-size:0.74rem;padding:4px 10px;">🌈 Browse All Visual Swatches</button>
             </div>
@@ -926,6 +1069,14 @@
             <label for="cmdPaletteCheck" title="Injects Studio theme picker (with ANSI swatches), 1-key Zen/Presentation Mode, Opacity Stepper, Ligatures toggle, and Launch Web Studio into WezTerm's Ctrl+Shift+P Command Palette">Command Palette (<code>Ctrl+Shift+P</code>) Studio &amp; Zen Mode</label>
             <input id="cmdPaletteCheck" type="checkbox" checked>
           </div>
+          <div class="s-row">
+            <label for="wsSwitcherCheck" title="Adds fuzzy zoxide & Git project workspace switcher to WezTerm's Ctrl+Shift+P Command Palette">Project Workspace Switcher (<code>zoxide</code> &amp; Git) in <code>Ctrl+Shift+P</code></label>
+            <input id="wsSwitcherCheck" type="checkbox" checked>
+          </div>
+          <div class="s-row">
+            <label for="sessionMgrCheck" title="Adds 1-click Save & Restore Workspace Session Snapshot actions to WezTerm's Ctrl+Shift+P Command Palette">Workspace Session Save &amp; Restore in <code>Ctrl+Shift+P</code></label>
+            <input id="sessionMgrCheck" type="checkbox" checked>
+          </div>
         </div>
 
         <div class="s-card">
@@ -933,6 +1084,20 @@
           <div class="s-row">
             <label for="opacityRange">Background opacity (<span id="opacityVal">1.00</span>)</label>
             <input id="opacityRange" type="range" min="0.2" max="1.0" step="0.02" value="1.0">
+          </div>
+          <div class="s-row">
+            <label for="blurRange" title="Sets macos_window_background_blur, kde_window_background_blur, and Win11 Acrylic backdrop (lower opacity below 1.0 to see frosted glass)">Frosted glass blur (<span id="blurVal">Off</span>)</label>
+            <input id="blurRange" type="range" min="0" max="80" step="2" value="0">
+          </div>
+          <div class="s-row">
+            <label for="win32BackdropSelect" title="Windows 11 system backdrop material (win32_system_backdrop)">Win11 backdrop material</label>
+            <select id="win32BackdropSelect">
+              <option value="Auto">Auto</option>
+              <option value="Acrylic">Acrylic</option>
+              <option value="Mica">Mica</option>
+              <option value="Tabbed">Tabbed</option>
+              <option value="Disable">Disable</option>
+            </select>
           </div>
           <div class="s-row">
             <label for="dimInactiveRange" title="Dims unfocused split panes via config.inactive_pane_hsb">Inactive split brightness (<span id="dimInactiveVal">1.00</span>)</label>
@@ -963,10 +1128,10 @@
 
         <div class="s-card">
           <h3>⚡ $EDITOR, Hyperlinks &amp; Terminal</h3>
-          <div class="s-row">
+          <div class="s-field">
             <label for="editorCmdInput" title="Editor binary used when clicking file:line stack traces or opening command output"><code>$EDITOR</code> command</label>
-            <div style="display:flex;gap:6px;flex:1;justify-content:flex-end;">
-              <input id="editorCmdInput" type="text" placeholder="Default ($EDITOR env / nvim)" style="min-width:150px;">
+            <div class="s-action-row">
+              <input id="editorCmdInput" type="text" placeholder="Default ($EDITOR env / nvim)">
               <button class="btn btn-primary" id="applyEditorBtn">Apply</button>
               <button class="btn" id="resetEditorBtn" title="Use $EDITOR environment variable">Env</button>
             </div>
@@ -1009,19 +1174,67 @@
             <input id="bellCheck" type="checkbox">
           </div>
         </div>
+
+        <div class="s-card">
+          <h3>🚀 GPU, FPS &amp; Quick Select</h3>
+          <div class="perf-warn" id="perfWarnBox"></div>
+          <div class="s-row">
+            <label for="frontEndSelect" title="WezTerm rendering backend (WebGpu, OpenGL, or Software CPU fallback)">GPU rendering <code>front_end</code></label>
+            <select id="frontEndSelect">
+              <option value="Auto">Auto (WezTerm Default)</option>
+              <option value="WebGpu">WebGpu</option>
+              <option value="OpenGL">OpenGL</option>
+              <option value="Software">Software (CPU)</option>
+            </select>
+          </div>
+          <div class="s-row">
+            <label for="maxFpsInput" title="config.max_fps (0 = WezTerm default; set 120 or 144 for high-refresh displays)">Max FPS (0 = default)</label>
+            <input id="maxFpsInput" type="number" min="0" max="240" step="5" value="0" placeholder="Auto">
+          </div>
+          <div class="s-row">
+            <label for="animFpsInput" title="config.animation_fps (0 = default; set 1 for ultra-low CPU on Software renderer)">Animation FPS (0 = default)</label>
+            <input id="animFpsInput" type="number" min="0" max="240" step="1" value="0" placeholder="Auto">
+          </div>
+          <div class="s-row">
+            <label for="waylandSelect" title="Explicitly force or disable Wayland protocol on Linux">Wayland support (Linux)</label>
+            <select id="waylandSelect">
+              <option value="auto">Auto</option>
+              <option value="true">Enabled (Wayland)</option>
+              <option value="false">Disabled (X11 / XWayland)</option>
+            </select>
+          </div>
+          <div class="s-row">
+            <label for="quickSelectCheck" title="Adds Git SHAs, UUIDs, IPv4:port, SemVer tags, hex colors, K8s pods & file:line patterns to Ctrl+Shift+Space mouseless copy">Quick Select power patterns (<code>Ctrl+Shift+Space</code>)</label>
+            <input id="quickSelectCheck" type="checkbox">
+          </div>
+        </div>
       </div>
     </section>
 
-    <!-- ── TAB 4: BACKUPS & PRESETS ── -->
+    <!-- ── TAB 5: BACKUPS, SESSIONS & PRESETS ── -->
     <section class="view-pane" id="view-backups">
       <div class="settings-grid">
         <div class="s-card">
           <h3>💾 Instant Backups</h3>
-          <div style="display:flex;gap:8px;">
-            <input class="search-input" id="backupLabelInput" type="text" placeholder="Optional label (e.g. before_test)...">
+          <div class="s-action-row">
+            <input id="backupLabelInput" type="text" placeholder="Optional label (e.g. before_test)...">
             <button class="btn btn-primary" id="createBackupBtn">+ Save Backup</button>
           </div>
           <div class="bkp-list" id="backupsList"></div>
+        </div>
+
+        <div class="s-card">
+          <h3>🗂 Workspace Session Snapshot</h3>
+          <p style="font-size:0.81rem;color:var(--sub);">
+            Press <code>Ctrl+Shift+P</code> inside WezTerm and pick <strong>Save Workspace Session Snapshot</strong> or <strong>Restore Saved Workspace Session</strong> to persist open workspaces, tabs, and project directories.
+          </p>
+          <div id="sessionSnapshotInfo" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:0.82rem;color:var(--sub);">
+            Checking saved session snapshot...
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn" id="refreshSessionBtn">↻ Refresh Status</button>
+            <button class="btn" id="clearSessionBtn">🗑 Clear Snapshot</button>
+          </div>
         </div>
 
         <div class="s-card">
@@ -1043,6 +1256,8 @@
   <script>
     let BOOT = null;
     let STATE = null;
+    let PERF_WARNINGS = [];
+    let SESSION_INFO = null;
     let FONTS = [];
     let SCHEME_PALETTES = [];
     let curCat = "";
@@ -1327,9 +1542,15 @@
       const ligOn = app.font_ligatures !== false;
       document.getElementById("ligaturesCheck").checked = ligOn;
       document.getElementById("ligaturesPaneCheck").checked = ligOn;
+      document.getElementById("fontFallbackCheck").checked = !!app.font_fallback;
 
       document.getElementById("schemeInput").value = app.color_scheme || "";
       document.getElementById("lightSchemeInput").value = app.color_scheme_light || "";
+      document.getElementById("oledBlackCheck").checked = !!app.oled_black;
+      document.getElementById("cursorColorInput").value = app.cursor_color || "";
+      if (app.cursor_color && /^#[0-9a-fA-F]{6}$/.test(app.cursor_color)) {
+        document.getElementById("cursorColorPicker").value = app.cursor_color;
+      }
       document.querySelectorAll(".scheme-chip:not(.ed-chip)").forEach(ch => {
         ch.classList.toggle("active", ch.dataset.scheme === (app.color_scheme || ""));
       });
@@ -1340,10 +1561,15 @@
       });
       document.getElementById("openInEditorCheck").checked = app.open_in_editor !== false;
 
-      if (app.window_opacity != null) {
-        document.getElementById("opacityRange").value = app.window_opacity;
-        document.getElementById("opacityVal").textContent = Number(app.window_opacity).toFixed(2);
-      }
+      const opVal = app.window_opacity != null ? Number(app.window_opacity) : 1.0;
+      document.getElementById("opacityRange").value = opVal;
+      document.getElementById("opacityVal").textContent = opVal.toFixed(2);
+
+      const blurNum = app.window_blur != null ? parseInt(app.window_blur, 10) || 0 : 0;
+      document.getElementById("blurRange").value = blurNum;
+      document.getElementById("blurVal").textContent = blurNum > 0 ? String(blurNum) : "Off";
+      document.getElementById("win32BackdropSelect").value = app.win32_backdrop || "Auto";
+
       const dimBr = app.inactive_pane_brightness != null ? Number(app.inactive_pane_brightness) : 1.0;
       document.getElementById("dimInactiveRange").value = dimBr;
       document.getElementById("dimInactiveVal").textContent = dimBr.toFixed(2);
@@ -1363,8 +1589,26 @@
       document.getElementById("agentRadarCheck").checked = app.agent_indicators !== false;
       document.getElementById("sshAlertCheck").checked = app.ssh_alert !== false;
       document.getElementById("cmdPaletteCheck").checked = app.command_palette !== false;
+      document.getElementById("wsSwitcherCheck").checked = app.workspace_switcher !== false;
+      document.getElementById("sessionMgrCheck").checked = app.session_manager !== false;
+
+      document.getElementById("frontEndSelect").value = app.front_end || "Auto";
+      document.getElementById("maxFpsInput").value = app.max_fps != null ? app.max_fps : 0;
+      document.getElementById("animFpsInput").value = app.animation_fps != null ? app.animation_fps : 0;
+      document.getElementById("waylandSelect").value = app.enable_wayland == null ? "auto" : String(!!app.enable_wayland);
+      document.getElementById("quickSelectCheck").checked = !!app.quick_select;
+
+      const pwBox = document.getElementById("perfWarnBox");
+      if (PERF_WARNINGS && PERF_WARNINGS.length > 0) {
+        pwBox.className = "perf-warn visible";
+        pwBox.innerHTML = PERF_WARNINGS.map(w => `<div>⚠ ${esc(w)}</div>`).join("");
+      } else {
+        pwBox.className = "perf-warn";
+        pwBox.innerHTML = "";
+      }
+
       document.getElementById("bellCheck").checked = app.audible_bell === "SystemBeep";
-      const darkLabel = app.color_scheme || "Default";
+      const darkLabel = (app.color_scheme || "Default") + (app.oled_black ? " [OLED]" : "");
       const lightLabel = app.color_scheme_light || "Off";
       document.getElementById("activeSchemesSummary").textContent = `Dark: ${darkLabel} · Light: ${lightLabel}`;
     }
@@ -1620,6 +1864,7 @@
       const res = await apiPost("/api/apply-appearance", { updates, label });
       if (res.ok) {
         STATE = res.state;
+        if (res.warnings) PERF_WARNINGS = res.warnings;
         syncHeaderAndAppearanceUI();
         renderFontsGrid();
         renderThemesGrid();
@@ -1630,7 +1875,28 @@
       }
     }
 
+    function renderSessionSnapshot(info) {
+      SESSION_INFO = info;
+      const box = document.getElementById("sessionSnapshotInfo");
+      if (!info || !info.exists) {
+        box.innerHTML = `<span style="color:var(--sub);">No workspace snapshot saved yet. Open WezTerm and press <code>Ctrl+Shift+P</code> → <strong>Save Workspace Session Snapshot</strong>.</span>`;
+        return;
+      }
+      const wsChips = (info.workspaces || []).map(w => `<span class="f-badge ed" style="margin-right:5px;">${esc(w.name)} (${w.tab_count})</span>`).join("");
+      box.innerHTML = `
+        <div style="color:var(--green);font-weight:700;margin-bottom:4px;">✔ ${info.total_tabs} tab(s) saved across ${(info.workspaces || []).length} workspace(s)</div>
+        <div style="font-size:0.76rem;color:var(--sub);margin-bottom:6px;">Saved at: ${esc(info.saved_at || "recent")} · Active: <strong>${esc(info.active_workspace || "default")}</strong></div>
+        <div>${wsChips}</div>
+      `;
+    }
+
+    async function loadSessionInfo() {
+      const res = await apiGet("/api/session");
+      if (res.ok) renderSessionSnapshot(res.session);
+    }
+
     async function loadBackups() {
+      loadSessionInfo();
       const res = await apiGet("/api/backups");
       if (!res.ok) return;
       renderBackupsList(res.backups);
@@ -1812,6 +2078,9 @@
     document.getElementById("ligaturesPaneCheck").addEventListener("change", e => {
       updateAppearance({ font_ligatures: e.target.checked }, `Programming ligatures → ${e.target.checked ? "On" : "Off"}`);
     });
+    document.getElementById("fontFallbackCheck").addEventListener("change", e => {
+      updateAppearance({ font_fallback: e.target.checked }, `Nerd Font & Emoji fallback → ${e.target.checked ? "On" : "Off"}`);
+    });
     document.getElementById("refreshFontsBtn").addEventListener("click", async () => {
       setStatus("Reloading system fonts...");
       const res = await apiGet("/api/fonts?refresh=1");
@@ -1880,12 +2149,45 @@
       document.getElementById("lightSchemeInput").value = "";
       updateAppearance({ color_scheme_light: "Default" }, "Light-mode Scheme cleared");
     });
+    document.getElementById("oledBlackCheck").addEventListener("change", e => {
+      updateAppearance({ oled_black: e.target.checked }, `OLED #000000 background → ${e.target.checked ? "On" : "Off"}`);
+    });
+    document.getElementById("cursorColorPicker").addEventListener("input", e => {
+      document.getElementById("cursorColorInput").value = e.target.value;
+    });
+    document.getElementById("cursorColorPicker").addEventListener("change", e => {
+      document.getElementById("cursorColorInput").value = e.target.value;
+      updateAppearance({ cursor_color: e.target.value }, `Cursor color → ${e.target.value}`);
+    });
+    document.getElementById("applyCursorColorBtn").addEventListener("click", () => {
+      const c = document.getElementById("cursorColorInput").value.trim();
+      if (c && !/^#[0-9a-fA-F]{6}$/.test(c)) {
+        setStatus("✖ Enter a 6-digit hex color like #60a5fa", "err");
+        return;
+      }
+      updateAppearance({ cursor_color: c || "Default" }, c ? `Cursor color → ${c}` : "Cursor color → Default");
+    });
+    document.getElementById("resetCursorColorBtn").addEventListener("click", () => {
+      document.getElementById("cursorColorInput").value = "";
+      updateAppearance({ cursor_color: "Default" }, "Cursor color → scheme default");
+    });
 
     document.getElementById("opacityRange").addEventListener("input", e => {
       document.getElementById("opacityVal").textContent = Number(e.target.value).toFixed(2);
     });
     document.getElementById("opacityRange").addEventListener("change", e => {
       updateAppearance({ window_opacity: parseFloat(e.target.value) }, `Opacity → ${Number(e.target.value).toFixed(2)}`);
+    });
+    document.getElementById("blurRange").addEventListener("input", e => {
+      const bv = parseInt(e.target.value, 10) || 0;
+      document.getElementById("blurVal").textContent = bv > 0 ? String(bv) : "Off";
+    });
+    document.getElementById("blurRange").addEventListener("change", e => {
+      const bv = parseInt(e.target.value, 10) || 0;
+      updateAppearance({ window_blur: bv }, `Frosted glass blur → ${bv > 0 ? bv : "Off"}`);
+    });
+    document.getElementById("win32BackdropSelect").addEventListener("change", e => {
+      updateAppearance({ win32_backdrop: e.target.value }, `Win11 backdrop → ${e.target.value}`);
     });
     document.getElementById("dimInactiveRange").addEventListener("input", e => {
       document.getElementById("dimInactiveVal").textContent = Number(e.target.value).toFixed(2);
@@ -1934,6 +2236,30 @@
     });
     document.getElementById("cmdPaletteCheck").addEventListener("change", e => {
       updateAppearance({ command_palette: e.target.checked }, `WezTerm Command Palette actions → ${e.target.checked ? "On" : "Off"}`);
+    });
+    document.getElementById("wsSwitcherCheck").addEventListener("change", e => {
+      updateAppearance({ workspace_switcher: e.target.checked }, `Project Workspace Switcher → ${e.target.checked ? "On" : "Off"}`);
+    });
+    document.getElementById("sessionMgrCheck").addEventListener("change", e => {
+      updateAppearance({ session_manager: e.target.checked }, `Workspace Session Save/Restore → ${e.target.checked ? "On" : "Off"}`);
+    });
+    document.getElementById("frontEndSelect").addEventListener("change", e => {
+      updateAppearance({ front_end: e.target.value }, `GPU front_end → ${e.target.value}`);
+    });
+    document.getElementById("maxFpsInput").addEventListener("change", e => {
+      const v = Math.max(0, Math.min(240, parseInt(e.target.value, 10) || 0));
+      updateAppearance({ max_fps: v }, v > 0 ? `Max FPS → ${v}` : "Max FPS → Default");
+    });
+    document.getElementById("animFpsInput").addEventListener("change", e => {
+      const v = Math.max(0, Math.min(240, parseInt(e.target.value, 10) || 0));
+      updateAppearance({ animation_fps: v }, v > 0 ? `Animation FPS → ${v}` : "Animation FPS → Default");
+    });
+    document.getElementById("waylandSelect").addEventListener("change", e => {
+      const v = e.target.value === "auto" ? "auto" : (e.target.value === "true");
+      updateAppearance({ enable_wayland: v }, `Wayland → ${e.target.options[e.target.selectedIndex].text}`);
+    });
+    document.getElementById("quickSelectCheck").addEventListener("change", e => {
+      updateAppearance({ quick_select: e.target.checked }, `Quick Select power patterns → ${e.target.checked ? "On" : "Off"}`);
     });
     document.getElementById("openSchemesBrowserBtn").addEventListener("click", () => switchView("schemes"));
 
@@ -2009,10 +2335,22 @@
       }
     });
 
+    document.getElementById("refreshSessionBtn").addEventListener("click", async () => {
+      await loadSessionInfo();
+      setStatus("✔ Session snapshot status refreshed", "ok");
+    });
+    document.getElementById("clearSessionBtn").addEventListener("click", async () => {
+      const res = await apiPost("/api/clear-session");
+      renderSessionSnapshot(res.session);
+      setStatus((res.ok ? "✔ " : "ℹ ") + res.msg, res.ok ? "ok" : "");
+    });
+
     async function boot() {
       setStatus("Initializing studio...");
       BOOT = await apiGet("/api/bootstrap");
       STATE = BOOT.state;
+      PERF_WARNINGS = BOOT.warnings || [];
+      if (BOOT.session) renderSessionSnapshot(BOOT.session);
       draftSymbols = STATE.symbols || null;
       document.getElementById("navThemesTab").textContent = `🎨 Tab Bar Themes (${BOOT.themes.length})`;
 
