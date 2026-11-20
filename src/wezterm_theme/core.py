@@ -250,6 +250,46 @@ def detect_user_config_conflicts(paths: dict[str, Path] | None = None) -> list[s
     return conflicts
 
 
+def disable_conflicting_tab_handlers(content: str) -> tuple[str, bool]:
+    """Comment out conflicting `wezterm.on('format-tab-title', ...)` blocks in user Lua code."""
+    hook_m = re.search(
+        r"(" + re.escape(HOOK_START) + r".*?" + re.escape(HOOK_END) + r")",
+        content,
+        flags=re.DOTALL,
+    )
+    if hook_m:
+        before = content[:hook_m.start()]
+        hook_block = hook_m.group(1)
+        after = content[hook_m.end():]
+    else:
+        before = content
+        hook_block = ""
+        after = ""
+
+    pattern = re.compile(
+        r"""([ \t]*wezterm\s*\.\s*on\s*\(\s*['"]format-tab-title['"].*?end\s*\))""",
+        re.DOTALL,
+    )
+
+    changed = False
+
+    def repl(m: re.Match[str]) -> str:
+        nonlocal changed
+        changed = True
+        block = m.group(1)
+        lines = ["-- [disabled by wezterm-theme: conflicts with dynamic tab bar themes]"]
+        for line in block.splitlines():
+            lines.append(f"-- {line}")
+        return "\n".join(lines)
+
+    new_before = pattern.sub(repl, before)
+    new_after = pattern.sub(repl, after)
+
+    if hook_m:
+        return new_before + hook_block + new_after, changed
+    return new_before, changed
+
+
 def get_current_state(paths: dict[str, Path] | None = None) -> dict[str, Any]:
     """Read complete unified state (mode, hook status, tab theme, symbols, font & appearance)."""
     paths = paths or resolve_wezterm_paths()
@@ -385,8 +425,15 @@ def _build_hook_block(cfg_var: str = "config") -> str:
     )
 
 
-def init_wezterm_config(paths: dict[str, Path] | None = None) -> tuple[bool, str]:
-    """Integrate `wezterm-theme` non-destructively into the user's `wezterm.lua`."""
+def init_wezterm_config(
+    paths: dict[str, Path] | None = None,
+    disable_conflicts: bool = True,
+) -> tuple[bool, str]:
+    """Integrate `wezterm-theme` non-destructively into the user's `wezterm.lua`.
+
+    If `disable_conflicts` is True (default), conflicting `format-tab-title` handlers
+    in `wezterm.lua` are commented out with an automatic timestamped backup.
+    """
     paths = paths or resolve_wezterm_paths()
     paths["config_dir"].mkdir(parents=True, exist_ok=True)
 
@@ -442,23 +489,42 @@ def init_wezterm_config(paths: dict[str, Path] | None = None) -> tuple[bool, str
         return True, f"Created {cfg_file} integrated with wezterm-theme!"
 
     original = cfg_file.read_text(encoding="utf-8")
+
+    # If hook already installed, check if user has conflicting handlers to resolve
     if HOOK_START in original:
+        if disable_conflicts:
+            cleaned, changed = disable_conflicting_tab_handlers(original)
+            if changed:
+                bkp_dir = paths["backup_dir"]
+                bkp_dir.mkdir(parents=True, exist_ok=True)
+                stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                shutil.copy2(cfg_file, bkp_dir / f"wezterm.lua.{stamp}_conflict_fix.bak")
+                cfg_file.write_text(cleaned, encoding="utf-8")
+                err = validate_config(cfg_file)
+                if err:
+                    cfg_file.write_text(original, encoding="utf-8")
+                    return False, f"Failed to resolve conflicts in {cfg_file} (rolled back): {err}"
+                return True, f"Resolved conflicting format-tab-title handlers in {cfg_file}!"
         return True, f"wezterm-theme is already integrated into {cfg_file}"
 
     # Match `return <identifier>` near EOF
-    m_ret = re.search(r"^([ \t]*)return[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:--.*)?$", original, re.MULTILINE)
+    working_text = original
+    if disable_conflicts:
+        working_text, _ = disable_conflicting_tab_handlers(working_text)
+
+    m_ret = re.search(r"^([ \t]*)return[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:--.*)?$", working_text, re.MULTILINE)
     if m_ret:
         # Use the last top-level return identifier in the file
         matches = list(
-            re.finditer(r"^([ \t]*)return[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:--.*)?$", original, re.MULTILINE)
+            re.finditer(r"^([ \t]*)return[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:--.*)?$", working_text, re.MULTILINE)
         )
         last = matches[-1]
         cfg_var = last.group(2)
         hook = _build_hook_block(cfg_var)
-        updated = original[: last.start()] + hook + "\n\n" + original[last.start() :]
+        updated = working_text[: last.start()] + hook + "\n\n" + working_text[last.start() :]
     else:
         # Fallback for `return { ... }` style configs
-        m_tbl = list(re.finditer(r"^([ \t]*)return[ \t]*\{", original, re.MULTILINE))
+        m_tbl = list(re.finditer(r"^([ \t]*)return[ \t]*\{", working_text, re.MULTILINE))
         if not m_tbl:
             return (
                 False,
@@ -468,9 +534,9 @@ def init_wezterm_config(paths: dict[str, Path] | None = None) -> tuple[bool, str
         last = m_tbl[-1]
         hook = _build_hook_block("_wt_config")
         updated = (
-            original[: last.start()]
+            working_text[: last.start()]
             + f"{last.group(1)}local _wt_config = {{"
-            + original[last.end() :]
+            + working_text[last.end() :]
             + f"\n\n{hook}\nreturn _wt_config\n"
         )
 

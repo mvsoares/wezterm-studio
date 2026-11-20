@@ -1263,7 +1263,21 @@
         document.getElementById("initBtn").addEventListener("click", runInit);
       } else if (STATE.conflicts && STATE.conflicts.length > 0) {
         initBanner.className = "init-banner visible warning";
-        initBanner.innerHTML = `<span>⚠ <strong>Conflict:</strong> Existing <code>format-tab-title</code> in wezterm.lua blocks Studio themes. Comment it out to see changes.</span>`;
+        initBanner.innerHTML = `<span>⚠ <strong>Conflict:</strong> Existing <code>format-tab-title</code> in wezterm.lua blocks Studio themes.</span> <button id="fixConflictBtn">⚡ Fix Automatically</button>`;
+        const fixBtn = document.getElementById("fixConflictBtn");
+        if (fixBtn) {
+          fixBtn.addEventListener("click", async () => {
+            setStatus("Resolving conflicts in wezterm.lua...");
+            const res = await apiPost("/api/fix-conflicts");
+            if (res.ok) {
+              STATE = res.state;
+              syncHeaderAndAppearanceUI();
+              setStatus("✔ " + res.msg, "ok");
+            } else {
+              setStatus("✖ " + res.msg, "err");
+            }
+          });
+        }
       } else {
         initBanner.className = "init-banner";
       }

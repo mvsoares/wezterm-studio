@@ -658,10 +658,18 @@ class StudioHTTPServerAndCLITests(unittest.TestCase):
         self.assertEqual(detect_user_config_conflicts({"config_file": cfg, "defaults_json": self.tmp_path / "none"}), [])
 
         # Active format-tab-title -> conflict detected
-        cfg.write_text("wezterm.on('format-tab-title', function(tab) return 'x' end)\nreturn config\n", encoding="utf-8")
-        conflicts = detect_user_config_conflicts({"config_file": cfg, "defaults_json": self.tmp_path / "none"})
+        cfg.write_text("local wezterm = require 'wezterm'\nlocal config = {}\nwezterm.on('format-tab-title', function(tab) return 'x' end)\nreturn config\n", encoding="utf-8")
+        paths = {"config_file": cfg, "defaults_json": self.tmp_path / "none", "backup_dir": self.tmp_path / "backups", "config_dir": self.tmp_path, "studio_lua": self.tmp_path / "wezterm_theme.lua", "studio_json": self.tmp_path / "wezterm_theme.json", "tab_theme_lua": self.tmp_path / "tab_theme.lua"}
+        conflicts = detect_user_config_conflicts(paths)
         self.assertEqual(len(conflicts), 1)
         self.assertIn("format-tab-title listener detected", conflicts[0])
+
+        # Test automatic resolution during init
+        from wezterm_theme.core import init_wezterm_config
+        ok, msg = init_wezterm_config(paths=paths, disable_conflicts=True)
+        self.assertTrue(ok)
+        self.assertEqual(detect_user_config_conflicts(paths), [])
+        self.assertIn("[disabled by wezterm-theme", cfg.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

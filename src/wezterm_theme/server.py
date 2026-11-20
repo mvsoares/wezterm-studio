@@ -177,7 +177,12 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             return
 
         if route == "/api/init":
-            ok, msg = init_wezterm_config()
+            ok, msg = init_wezterm_config(disable_conflicts=True)
+            self._send_json({"ok": ok, "msg": msg, "state": get_current_state()})
+            return
+
+        if route == "/api/fix-conflicts":
+            ok, msg = init_wezterm_config(disable_conflicts=True)
             self._send_json({"ok": ok, "msg": msg, "state": get_current_state()})
             return
 
