@@ -642,6 +642,27 @@ class StudioHTTPServerAndCLITests(unittest.TestCase):
             rc = cli_main(["doctor"])
         self.assertEqual(rc, 0)
 
+    def test_detect_user_config_conflicts(self) -> None:
+        from wezterm_theme.core import detect_user_config_conflicts
+        cfg = self.tmp_path / "wezterm.lua"
+
+        # No file -> no conflicts
+        self.assertEqual(detect_user_config_conflicts({"config_file": cfg, "defaults_json": self.tmp_path / "none"}), [])
+
+        # Clean config -> no conflicts
+        cfg.write_text("local wezterm = require 'wezterm'\nlocal config = {}\nreturn config\n", encoding="utf-8")
+        self.assertEqual(detect_user_config_conflicts({"config_file": cfg, "defaults_json": self.tmp_path / "none"}), [])
+
+        # Commented format-tab-title -> no conflicts
+        cfg.write_text("-- wezterm.on('format-tab-title', function(tab) return 'x' end)\nreturn config\n", encoding="utf-8")
+        self.assertEqual(detect_user_config_conflicts({"config_file": cfg, "defaults_json": self.tmp_path / "none"}), [])
+
+        # Active format-tab-title -> conflict detected
+        cfg.write_text("wezterm.on('format-tab-title', function(tab) return 'x' end)\nreturn config\n", encoding="utf-8")
+        conflicts = detect_user_config_conflicts({"config_file": cfg, "defaults_json": self.tmp_path / "none"})
+        self.assertEqual(len(conflicts), 1)
+        self.assertIn("format-tab-title listener detected", conflicts[0])
+
 
 if __name__ == "__main__":
     unittest.main()

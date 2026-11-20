@@ -84,6 +84,11 @@
       font-size: 0.8rem;
     }
     .init-banner.visible { display: inline-flex; }
+    .init-banner.warning {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.45);
+      color: #fca5a5;
+    }
     .init-banner button {
       background: var(--amber);
       color: #111827;
@@ -1251,7 +1256,17 @@
       const activeTheme = BOOT.themes.find(t => t.id === STATE.theme_id) || BOOT.themes[0];
 
       document.getElementById("modePill").textContent = `${STATE.platform} · ${STATE.mode}`;
-      document.getElementById("initBanner").classList.toggle("visible", !STATE.initialized);
+      const initBanner = document.getElementById("initBanner");
+      if (!STATE.initialized) {
+        initBanner.className = "init-banner visible";
+        initBanner.innerHTML = `<span>Your <code>wezterm.lua</code> is not linked yet.</span> <button id="initBtn">⚡ Integrate Now (init)</button>`;
+        document.getElementById("initBtn").addEventListener("click", runInit);
+      } else if (STATE.conflicts && STATE.conflicts.length > 0) {
+        initBanner.className = "init-banner visible warning";
+        initBanner.innerHTML = `<span>⚠ <strong>Conflict:</strong> Existing <code>format-tab-title</code> in wezterm.lua blocks Studio themes. Comment it out to see changes.</span>`;
+      } else {
+        initBanner.className = "init-banner";
+      }
 
       document.getElementById("hdrTheme").textContent = `#${String(activeTheme.id).padStart(2, "0")} ${activeTheme.name}`;
       document.getElementById("hdrEditorFont").textContent = shortFont(app.font_family);
@@ -1655,7 +1670,7 @@
       tab.addEventListener("click", () => switchView(tab.dataset.view));
     });
 
-    document.getElementById("initBtn").addEventListener("click", async () => {
+    async function runInit() {
       const res = await apiPost("/api/init");
       if (res.ok) {
         STATE = res.state;
@@ -1664,7 +1679,12 @@
       } else {
         setStatus("✖ " + res.msg, "err");
       }
-    });
+    }
+
+    const initBtnEl = document.getElementById("initBtn");
+    if (initBtnEl) {
+      initBtnEl.addEventListener("click", runInit);
+    }
 
     document.getElementById("themeSearch").addEventListener("input", renderThemesGrid);
 

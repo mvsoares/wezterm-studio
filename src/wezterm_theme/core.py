@@ -219,6 +219,37 @@ def _extract_loader_appearance(merged: dict[str, Any], settings_only: dict[str, 
     return app
 
 
+def detect_user_config_conflicts(paths: dict[str, Path] | None = None) -> list[str]:
+    """Inspect user's wezterm.lua for conflicting handlers that override Studio themes."""
+    paths = paths or resolve_wezterm_paths()
+    cfg_file = paths["config_file"]
+    if not cfg_file.is_file() or is_loader_mode(paths):
+        return []
+    try:
+        content = cfg_file.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return []
+
+    # Strip out the wezterm-theme hook block so we don't flag our own generated hook
+    clean = re.sub(
+        r"\n?" + re.escape(HOOK_START) + r".*?" + re.escape(HOOK_END) + r"\n?",
+        "",
+        content,
+        flags=re.DOTALL,
+    )
+    # Strip single-line Lua comments
+    clean_lines = [re.sub(r"--.*$", "", line) for line in clean.splitlines()]
+    clean_code = "\n".join(clean_lines)
+
+    conflicts: list[str] = []
+    if re.search(r"""(?:wezterm\s*\.\s*on\s*\(\s*['"]format-tab-title['"])""", clean_code):
+        conflicts.append(
+            "format-tab-title listener detected in wezterm.lua. "
+            "It overrides WezTerm Studio tab bar themes."
+        )
+    return conflicts
+
+
 def get_current_state(paths: dict[str, Path] | None = None) -> dict[str, Any]:
     """Read complete unified state (mode, hook status, tab theme, symbols, font & appearance)."""
     paths = paths or resolve_wezterm_paths()
@@ -248,6 +279,7 @@ def get_current_state(paths: dict[str, Path] | None = None) -> dict[str, Any]:
             "tab_title_len": tlen,
             "symbols": syms,
             "appearance": _extract_loader_appearance(merged, settings_only=settings),
+            "conflicts": [],
         }
 
     # Standalone mode
@@ -265,6 +297,8 @@ def get_current_state(paths: dict[str, Path] | None = None) -> dict[str, Any]:
     saved_app = studio.get("appearance") if isinstance(studio.get("appearance"), dict) else {}
     appearance = {**DEFAULT_APPEARANCE, **saved_app}
 
+    conflicts = detect_user_config_conflicts(paths)
+
     return {
         "mode": "standalone",
         "initialized": is_hook_installed(paths),
@@ -275,6 +309,7 @@ def get_current_state(paths: dict[str, Path] | None = None) -> dict[str, Any]:
         "tab_title_len": tlen,
         "symbols": syms,
         "appearance": appearance,
+        "conflicts": conflicts,
     }
 
 
@@ -450,6 +485,11 @@ def init_wezterm_config(paths: dict[str, Path] | None = None) -> tuple[bool, str
     if err:
         cfg_file.write_text(original, encoding="utf-8")
         return False, f"WezTerm rejected the change in {cfg_file} (automatically rolled back): {err}"
+
+    conflicts = detect_user_config_conflicts(paths)
+    if conflicts:
+        conflict_msg = " Note: " + "; ".join(conflicts) + " You may want to comment out or remove custom format-tab-title handlers to allow Studio themes to take effect."
+        return True, f"Successfully integrated wezterm-theme into {cfg_file}.{conflict_msg}"
 
     return True, f"Successfully integrated wezterm-theme into {cfg_file}"
 

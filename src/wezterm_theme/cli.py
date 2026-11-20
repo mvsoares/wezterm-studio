@@ -18,6 +18,7 @@ from .core import (
     apply_appearance,
     apply_theme,
     backup_current_config,
+    detect_user_config_conflicts,
     export_preset,
     get_available_backups,
     get_current_state,
@@ -149,7 +150,16 @@ def _cmd_doctor(argv: Sequence[str]) -> int:
         if err:
             print(f"\n  {RED}{BOLD}✖ WezTerm validation failed:{RESET}\n  {err}\n")
             return 1
-        print(f"\n  {GREEN}{BOLD}✔ wezterm.lua validated cleanly!{RESET}\n")
+        print(f"\n  {GREEN}{BOLD}✔ wezterm.lua validated cleanly!{RESET}")
+
+        conflicts = detect_user_config_conflicts(paths)
+        if conflicts:
+            print(f"\n  {YELLOW}{BOLD}⚠ Configuration Warning(s):{RESET}")
+            for c in conflicts:
+                print(f"    • {c}")
+            print(f"    {DIM}Hint: Comment out or remove existing 'format-tab-title' handlers in wezterm.lua so Studio themes can render.{RESET}\n")
+        else:
+            print("")
     else:
         print(f"\n  {YELLOW}ℹ {cfg_path} does not exist yet. Run 'wezterm-theme init' to create it.{RESET}\n")
     return 0
