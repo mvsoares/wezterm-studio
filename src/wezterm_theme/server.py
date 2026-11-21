@@ -18,6 +18,8 @@ from __future__ import annotations
 import importlib.resources
 import ipaddress
 import json
+import os
+import re
 import secrets
 import socket
 import urllib.parse
@@ -45,7 +47,7 @@ from .core import (
     restore_backup,
     validation_available,
 )
-from .fonts import get_color_scheme_palettes, get_color_schemes, get_installed_fonts
+from .fonts import get_color_scheme_palettes, get_installed_fonts
 from .paths import has_gui_display, system_summary
 from .themes import (
     CATEGORIES,
@@ -125,6 +127,19 @@ def _serialize_symbol_groups() -> list[dict[str, Any]]:
             })
         groups.append({"key": key, "code": code, "title": title, "options": clean_opts})
     return groups
+
+
+def _parse_strict_int(field: str, value: Any) -> int:
+    """Accept an int, an integral float (10.0) or a decimal string; anything else is a 400."""
+    if isinstance(value, bool):
+        raise RequestError(400, f"'{field}' must be an integer, not boolean.")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str) and re.fullmatch(r"\s*[+-]?[0-9]+\s*", value):
+        return int(value)
+    raise RequestError(400, f"'{field}' must be an integer, got {value!r}.")
 
 
 def _short_err(err: str | None) -> str:
@@ -291,7 +306,13 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
         # `init` also resolves conflicts, so the UI's "Fix Automatically" button shares it.
         if route in ("/api/init", "/api/fix-conflicts"):
             ok, msg = init_wezterm_config(disable_conflicts=True)
-            self._send_json({"ok": ok, "msg": msg, "state": get_current_state()})
+            st = get_current_state()
+            self._send_json({
+                "ok": ok,
+                "msg": msg,
+                "state": st,
+                "warnings": _studio_warnings(st.get("appearance")),
+            })
             return
 
         if route == "/api/clear-session":
@@ -303,14 +324,14 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             tid = body.get("theme_id")
             if tid is None:
                 tid = get_current_state()["theme_id"]
-            theme = get_theme_by_id(int(tid))
+            theme = get_theme_by_id(_parse_strict_int("theme_id", tid))
             if not theme:
                 self._send_json({"ok": False, "msg": f"Invalid theme #{tid}."}, status=400)
                 return
 
             tlen = body.get("tab_title_len")
             if tlen is not None:
-                tlen = max(4, min(60, int(tlen)))
+                tlen = max(4, min(60, _parse_strict_int("tab_title_len", tlen)))
 
             sym_arg: Any = _KEEP
             if "symbols" in body:
@@ -321,10 +342,12 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             if not ok:
                 self._send_json({"ok": False, "msg": f"WezTerm rejected configuration: {_short_err(err)}"})
                 return
+            new_st = get_current_state()
             self._send_json({
                 "ok": True,
                 "msg": f"Theme #{theme['id']:02d} ({theme['name']}) applied!",
-                "state": get_current_state(),
+                "state": new_st,
+                "warnings": _studio_warnings(new_st.get("appearance")),
             })
             return
 
@@ -362,10 +385,12 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
         if route == "/api/restore":
             target = body.get("target", 1)
             ok, msg = restore_backup(target)
+            new_st = get_current_state()
             self._send_json({
                 "ok": ok,
                 "msg": msg,
-                "state": get_current_state(),
+                "state": new_st,
+                "warnings": _studio_warnings(new_st.get("appearance")),
                 "backups": _serialize_backups(),
             })
             return
@@ -384,23 +409,69 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             if not isinstance(preset, dict):
                 raise RequestError(400, "'preset' must be a JSON object.")
             ok, msg = import_preset(preset)
-            self._send_json({"ok": ok, "msg": msg, "state": get_current_state()})
+            new_st = get_current_state()
+            self._send_json({
+                "ok": ok,
+                "msg": msg,
+                "state": new_st,
+                "warnings": _studio_warnings(new_st.get("appearance")),
+            })
             return
 
         self._send_json({"ok": False, "msg": f"POST route not found: {route}"}, status=404)
 
 
 class ReusableThreadingHTTPServer(ThreadingHTTPServer):
-    allow_reuse_address = True
+    # On Windows SO_REUSEADDR lets a second server bind a port another process is already
+    # listening on (requests then hit whichever instance, with the wrong session token).
+    allow_reuse_address = os.name != "nt"
     studio_token: str = ""
     loopback_only: bool = True
     allowed_host_names: set[str] = _LOOPBACK_HOST_NAMES
+    bound_host: str = "127.0.0.1"
 
 
-def _find_free_port(host: str, preferred: int, max_tries: int = 15) -> int:
+class ReusableThreadingHTTPServerV6(ReusableThreadingHTTPServer):
+    address_family = socket.AF_INET6
+
+
+def _address_family_for_host(host: str) -> socket.AddressFamily:
+    """Address family to listen on for `host` (already stripped of [brackets]).
+
+    Hostnames prefer IPv4 when they resolve to it: `localhost` often lists ::1 first, which
+    fails where IPv6 is disabled and changed the address the Studio used to listen on.
+    """
+    try:
+        return socket.AF_INET6 if ipaddress.ip_address(host).version == 6 else socket.AF_INET
+    except ValueError:
+        pass
+    try:
+        families = {info[0] for info in socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)}
+    except OSError:
+        return socket.AF_INET
+    if socket.AF_INET6 in families and socket.AF_INET not in families:
+        return socket.AF_INET6
+    return socket.AF_INET
+
+
+def _probe_socket(family: socket.AddressFamily) -> socket.socket:
+    s = socket.socket(family, socket.SOCK_STREAM)
+    if os.name == "nt":
+        # Never share a port with a running instance (see ReusableThreadingHTTPServer).
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    else:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    return s
+
+
+def _find_free_port(host: str, preferred: int, family: socket.AddressFamily, max_tries: int = 15) -> int:
+    try:
+        _probe_socket(family).close()
+    except OSError as exc:
+        raise OSError(f"Cannot listen on {host}: {exc}") from None
     for p in range(preferred, preferred + max_tries):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        with _probe_socket(family) as s:
             try:
                 s.bind((host, p))
                 return p
@@ -411,11 +482,15 @@ def _find_free_port(host: str, preferred: int, max_tries: int = 15) -> int:
 
 def create_server(host: str = "127.0.0.1", port: int | None = None) -> tuple[ThreadingHTTPServer, int]:
     """Instantiate the HTTP server on `port` (or auto-select starting from 7777)."""
-    actual_port = port if port is not None else _find_free_port(host, DEFAULT_PORT)
-    httpd = ReusableThreadingHTTPServer((host, actual_port), StudioRequestHandler)
+    clean_host = host.strip().strip("[]")
+    family = _address_family_for_host(clean_host)
+    actual_port = port if port is not None else _find_free_port(clean_host, DEFAULT_PORT, family)
+    server_cls = ReusableThreadingHTTPServerV6 if family == socket.AF_INET6 else ReusableThreadingHTTPServer
+    httpd = server_cls((clean_host, actual_port), StudioRequestHandler)
     httpd.studio_token = secrets.token_urlsafe(32)
-    httpd.loopback_only = _is_loopback_host(host)
-    bound_name = f"[{host}]" if ":" in host else host
+    httpd.loopback_only = _is_loopback_host(clean_host)
+    httpd.bound_host = clean_host
+    bound_name = f"[{clean_host}]" if ":" in clean_host else clean_host
     httpd.allowed_host_names = _LOOPBACK_HOST_NAMES | {bound_name.lower()}
     return httpd, actual_port
 
@@ -427,7 +502,8 @@ def run_studio_server(
 ) -> None:
     """Start the interactive WezTerm Studio web server and open it in the browser."""
     httpd, actual_port = create_server(host=host, port=port)
-    url = f"http://{host}:{actual_port}"
+    display_host = f"[{httpd.bound_host}]" if ":" in httpd.bound_host else httpd.bound_host
+    url = f"http://{display_host}:{actual_port}"
 
     print(f"\n  \033[1;36m✦ WezTerm Studio v{__version__}\033[0m running at: \033[1;32m{url}\033[0m")
     print("  \033[2mChanges to tab themes, symbols, fonts, and colors hot-reload WezTerm in real time.\033[0m")

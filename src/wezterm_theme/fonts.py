@@ -7,15 +7,22 @@ and Windows (DirectWrite + WezTerm) with zero external Python dependencies.
 from __future__ import annotations
 
 import json
-import os
 import re
 import shutil
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any
 
-from .paths import find_wezterm_cmd, get_cache_dir, get_platform_name
+from .paths import atomic_write_text, find_wezterm_cmd, get_cache_dir, get_platform_name
+from .themes import _lua_long_str
+
+# One lock per cache: building either one runs a slow `wezterm` subprocess, and the Web
+# Studio requests fonts and schemes in parallel on separate threads.
+_FONTS_LOCK = threading.Lock()
+_SCHEMES_LOCK = threading.RLock()
+
 
 # Curated coding & Nerd Font descriptions
 _FONT_META: dict[str, tuple[str, str]] = {
@@ -323,63 +330,64 @@ def _meta_for_family(family: str) -> tuple[str, str]:
 def get_installed_fonts(refresh: bool = False) -> list[dict[str, Any]]:
     """Return installed monospace & Nerd Font families across Linux, macOS, and Windows."""
     global _FONTS_CACHE
-    if _FONTS_CACHE is not None and not refresh:
-        return _FONTS_CACHE
+    with _FONTS_LOCK:
+        if _FONTS_CACHE is not None and not refresh:
+            return _FONTS_CACHE
 
-    builtin_fams, system_fams, weights_map = _wezterm_list_fonts()
-    fc_fams = _fc_list_mono_families()
+        builtin_fams, system_fams, weights_map = _wezterm_list_fonts()
+        fc_fams = _fc_list_mono_families()
 
-    candidates: set[str] = {"JetBrains Mono"}
-    candidates.update(builtin_fams)
+        candidates: set[str] = {"JetBrains Mono"}
+        candidates.update(builtin_fams)
 
-    if fc_fams is not None:
-        # Authoritative monospace + Nerd Font set from FontConfig
-        candidates.update(fc_fams)
-        # Also include any built-in/custom font_dirs families discovered by WezTerm
-        for fam in system_fams:
-            if "Nerd Font" in fam:
-                candidates.add(fam)
-    elif system_fams:
-        # macOS (CoreText) / Windows (DirectWrite): filter WezTerm system list to monospace/coding faces
-        for fam in system_fams:
-            if _looks_monospace(fam):
-                candidates.add(fam)
-    else:
-        candidates.update(_os_fallback_families())
+        if fc_fams is not None:
+            # Authoritative monospace + Nerd Font set from FontConfig
+            candidates.update(fc_fams)
+            # Also include any built-in/custom font_dirs families discovered by WezTerm
+            for fam in system_fams:
+                if "Nerd Font" in fam:
+                    candidates.add(fam)
+        elif system_fams:
+            # macOS (CoreText) / Windows (DirectWrite): filter WezTerm system list to monospace/coding faces
+            for fam in system_fams:
+                if _looks_monospace(fam):
+                    candidates.add(fam)
+        else:
+            candidates.update(_os_fallback_families())
 
-    # Deduplicate "... Nerd Font Mono" / "... Nerd Font Propo" ONLY when the base "... Nerd Font"
-    # family is also present, so users who only installed the Mono variant still see their font!
-    filtered_fams: list[str] = []
-    for fam in candidates:
-        if _is_excluded_face(fam):
-            continue
-        if fam.endswith(" Nerd Font Mono"):
-            base = fam.removesuffix(" Mono")
-            if base in candidates:
-                # Merge weights into base entry
-                if fam in weights_map:
-                    weights_map.setdefault(base, set()).update(weights_map[fam])
+        # Deduplicate "... Nerd Font Mono" / "... Nerd Font Propo" ONLY when the base "... Nerd Font"
+        # family is also present, so users who only installed the Mono variant still see their font!
+        filtered_fams: list[str] = []
+        for fam in candidates:
+            if _is_excluded_face(fam):
                 continue
-        if fam.endswith(" Nerd Font Propo"):
-            base = fam.removesuffix(" Propo")
-            if base in candidates:
-                continue
-        filtered_fams.append(fam)
+            if fam.endswith(" Nerd Font Mono"):
+                base = fam.removesuffix(" Mono")
+                if base in candidates:
+                    # Merge weights into base entry
+                    if fam in weights_map:
+                        weights_map.setdefault(base, set()).update(weights_map[fam])
+                    continue
+            if fam.endswith(" Nerd Font Propo"):
+                base = fam.removesuffix(" Propo")
+                if base in candidates:
+                    continue
+            filtered_fams.append(fam)
 
-    fonts: list[dict[str, Any]] = []
-    for fam in sorted(filtered_fams, key=str.casefold):
-        author, text = _meta_for_family(fam)
-        fonts.append({
-            "name": fam,
-            "family": fam,
-            "desc": author,
-            "text": text,
-            "weights": _sort_weights(weights_map.get(fam, set())),
-            "is_nerd": ("Nerd Font" in fam) or fam.endswith(" NF"),
-        })
+        fonts: list[dict[str, Any]] = []
+        for fam in sorted(filtered_fams, key=str.casefold):
+            author, text = _meta_for_family(fam)
+            fonts.append({
+                "name": fam,
+                "family": fam,
+                "desc": author,
+                "text": text,
+                "weights": _sort_weights(weights_map.get(fam, set())),
+                "is_nerd": ("Nerd Font" in fam) or bool(re.search(r"\bNF[MP]?\b", fam)),
+            })
 
-    _FONTS_CACHE = fonts
-    return fonts
+        _FONTS_CACHE = fonts
+        return fonts
 
 
 _SCHEME_PALETTE_LUA_TEMPLATE = """\
@@ -410,7 +418,7 @@ for name, s in pairs(wezterm.color.get_builtin_schemes()) do
 end
 table.sort(out, function(a, b) return a.name < b.name end)
 local encode = (wezterm.serde and wezterm.serde.json_encode) or wezterm.json_encode
-local f = io.open([==[__JSON_PATH__]==], 'w')
+local f = io.open(__JSON_PATH__, 'w')
 if f then
   f:write(encode(out))
   f:close()
@@ -451,91 +459,92 @@ def get_color_scheme_palettes(refresh: bool = False) -> list[dict[str, Any]]:
     or rename built-in schemes) refreshes it automatically.
     """
     global _SCHEME_PALETTES_CACHE, _SCHEMES_CACHE
-    if _SCHEME_PALETTES_CACHE is not None and not refresh:
-        return _SCHEME_PALETTES_CACHE
+    with _SCHEMES_LOCK:
+        if _SCHEME_PALETTES_CACHE is not None and not refresh:
+            return _SCHEME_PALETTES_CACHE
 
-    cache_file = get_cache_dir() / "color_scheme_palettes.json"
-    current_version = _wezterm_version()
-    if not refresh and cache_file.is_file():
-        try:
-            cached = json.loads(cache_file.read_text(encoding="utf-8"))
-            if isinstance(cached, dict):
-                cached_version, cached_list = cached.get("wezterm_version"), cached.get("palettes")
-            else:
-                # Caches written before version tagging are a bare list.
-                cached_version, cached_list = None, cached
-            usable = (
-                isinstance(cached_list, list)
-                and len(cached_list) > 50
-                and isinstance(cached_list[0], dict)
-                and "bg" in cached_list[0]
-            )
-            # Without a wezterm binary the cache cannot be rebuilt, so keep using it.
-            if usable and (current_version is None or cached_version == current_version):
-                _SCHEME_PALETTES_CACHE = cached_list
-                _SCHEMES_CACHE = [item["name"] for item in cached_list]
-                return cached_list
-        except Exception:
-            pass
-
-    wz = find_wezterm_cmd()
-    palettes: list[dict[str, Any]] = []
-    if wz:
-        try:
-            with tempfile.TemporaryDirectory() as tmp:
-                lua_path = Path(tmp) / "dump_palettes.lua"
-                json_path = Path(tmp) / "palettes.json"
-                lua_path.write_text(
-                    _SCHEME_PALETTE_LUA_TEMPLATE.replace("__JSON_PATH__", json_path.as_posix()),
-                    encoding="utf-8",
+        cache_file = get_cache_dir() / "color_scheme_palettes.json"
+        current_version = _wezterm_version()
+        if not refresh and cache_file.is_file():
+            try:
+                cached = json.loads(cache_file.read_text(encoding="utf-8"))
+                if isinstance(cached, dict):
+                    cached_version, cached_list = cached.get("wezterm_version"), cached.get("palettes")
+                else:
+                    # Caches written before version tagging are a bare list.
+                    cached_version, cached_list = None, cached
+                usable = (
+                    isinstance(cached_list, list)
+                    and len(cached_list) > 50
+                    and isinstance(cached_list[0], dict)
+                    and "bg" in cached_list[0]
                 )
-                subprocess.run(
-                    [*wz, "--config-file", str(lua_path), "ls-fonts", "--text", "a"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=20,
-                    check=False,
+                # Without a wezterm binary the cache cannot be rebuilt, so keep using it.
+                if usable and (current_version is None or cached_version == current_version):
+                    _SCHEME_PALETTES_CACHE = cached_list
+                    _SCHEMES_CACHE = [item["name"] for item in cached_list]
+                    return cached_list
+            except Exception:
+                pass
+
+        wz = find_wezterm_cmd()
+        palettes: list[dict[str, Any]] = []
+        if wz:
+            try:
+                with tempfile.TemporaryDirectory() as tmp:
+                    lua_path = Path(tmp) / "dump_palettes.lua"
+                    json_path = Path(tmp) / "palettes.json"
+                    lua_path.write_text(
+                        _SCHEME_PALETTE_LUA_TEMPLATE.replace("__JSON_PATH__", _lua_long_str(json_path.as_posix())),
+                        encoding="utf-8",
+                    )
+                    subprocess.run(
+                        [*wz, "--config-file", str(lua_path), "ls-fonts", "--text", "a"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=20,
+                        check=False,
+                    )
+                    if json_path.is_file():
+                        raw_list = json.loads(json_path.read_text(encoding="utf-8"))
+                        if isinstance(raw_list, list):
+                            for entry in raw_list:
+                                if isinstance(entry, dict) and entry.get("name"):
+                                    bg = str(entry.get("bg") or "#000000")
+                                    palettes.append({
+                                        "name": str(entry["name"]),
+                                        "bg": bg,
+                                        "fg": str(entry.get("fg") or "#ffffff"),
+                                        "cursor": str(entry.get("cursor") or "#ffffff"),
+                                        "ansi": list(entry.get("ansi") or [])[:8],
+                                        "is_dark": _hex_is_dark(bg),
+                                    })
+            except Exception:
+                palettes = []
+
+        if not palettes:
+            palettes = [dict(p) for p in _FALLBACK_SCHEME_PALETTES]
+
+        if len(palettes) > 50:
+            try:
+                atomic_write_text(
+                    cache_file,
+                    json.dumps({"wezterm_version": current_version, "palettes": palettes}, ensure_ascii=False),
                 )
-                if json_path.is_file():
-                    raw_list = json.loads(json_path.read_text(encoding="utf-8"))
-                    if isinstance(raw_list, list):
-                        for entry in raw_list:
-                            if isinstance(entry, dict) and entry.get("name"):
-                                bg = str(entry.get("bg") or "#000000")
-                                palettes.append({
-                                    "name": str(entry["name"]),
-                                    "bg": bg,
-                                    "fg": str(entry.get("fg") or "#ffffff"),
-                                    "cursor": str(entry.get("cursor") or "#ffffff"),
-                                    "ansi": list(entry.get("ansi") or [])[:8],
-                                    "is_dark": _hex_is_dark(bg),
-                                })
-        except Exception:
-            palettes = []
+            except OSError:
+                pass
 
-    if not palettes:
-        palettes = [dict(p) for p in _FALLBACK_SCHEME_PALETTES]
-
-    if len(palettes) > 50:
-        try:
-            cache_file.parent.mkdir(parents=True, exist_ok=True)
-            cache_file.write_text(
-                json.dumps({"wezterm_version": current_version, "palettes": palettes}, ensure_ascii=False),
-                encoding="utf-8",
-            )
-        except OSError:
-            pass
-
-    _SCHEME_PALETTES_CACHE = palettes
-    _SCHEMES_CACHE = [item["name"] for item in palettes]
-    return palettes
+        _SCHEME_PALETTES_CACHE = palettes
+        _SCHEMES_CACHE = [item["name"] for item in palettes]
+        return palettes
 
 
 def get_color_schemes(refresh: bool = False) -> list[str]:
     """Return WezTerm's built-in color scheme names (memory + disk cached for instant startup)."""
     global _SCHEMES_CACHE
-    if _SCHEMES_CACHE is not None and not refresh:
+    with _SCHEMES_LOCK:
+        if _SCHEMES_CACHE is not None and not refresh:
+            return _SCHEMES_CACHE
+        palettes = get_color_scheme_palettes(refresh=refresh)
+        _SCHEMES_CACHE = [p["name"] for p in palettes]
         return _SCHEMES_CACHE
-    palettes = get_color_scheme_palettes(refresh=refresh)
-    _SCHEMES_CACHE = [p["name"] for p in palettes]
-    return _SCHEMES_CACHE

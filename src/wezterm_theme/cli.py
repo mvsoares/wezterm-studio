@@ -15,6 +15,7 @@ from typing import Sequence
 
 from . import __version__
 from .core import (
+    VALIDATION_SKIPPED_MSG,
     apply_appearance,
     apply_theme,
     backup_current_config,
@@ -30,6 +31,7 @@ from .core import (
     restore_backup,
     uninstall_wezterm_config,
     validate_config,
+    validation_available,
 )
 from .fonts import get_color_scheme_palettes, get_color_schemes, get_installed_fonts
 from .paths import init_terminal, resolve_wezterm_paths, system_summary
@@ -162,11 +164,14 @@ def _cmd_doctor(argv: Sequence[str]) -> int:
 
     cfg_path = paths["config_file"]
     if cfg_path.is_file():
-        err = validate_config(cfg_path)
-        if err:
-            print(f"\n  {RED}{BOLD}✖ WezTerm validation failed:{RESET}\n  {err}\n")
-            return 1
-        print(f"\n  {GREEN}{BOLD}✔ wezterm.lua validated cleanly!{RESET}")
+        if not validation_available():
+            print(f"\n  {YELLOW}{BOLD}⚠ Validation skipped:{RESET} {VALIDATION_SKIPPED_MSG}")
+        else:
+            err = validate_config(cfg_path)
+            if err:
+                print(f"\n  {RED}{BOLD}✖ WezTerm validation failed:{RESET}\n  {err}\n")
+                return 1
+            print(f"\n  {GREEN}{BOLD}✔ wezterm.lua validated cleanly!{RESET}")
 
         conflicts = detect_user_config_conflicts(paths)
         perf_warnings = detect_performance_warnings(paths, appearance=state.get("appearance"))
@@ -287,6 +292,10 @@ def _print_current_status() -> None:
         extras.append(f"Renderer: {app['front_end']}")
     if app.get("max_fps"):
         extras.append(f"Max FPS: {app['max_fps']}")
+    if app.get("animation_fps"):
+        extras.append(f"Anim FPS: {app['animation_fps']}")
+    if app.get("enable_wayland") is not None:
+        extras.append(f"Wayland: {'On' if app['enable_wayland'] else 'Off'}")
     if app.get("quick_select"):
         extras.append("QuickSelect: On")
     if app.get("status_bar") is not None:
@@ -304,6 +313,10 @@ def _print_current_status() -> None:
         extras.append(f"SSH/prod alert: {'On' if app['ssh_alert'] else 'Off'}")
     if app.get("command_palette") is not None:
         extras.append(f"Cmd palette: {'On' if app['command_palette'] else 'Off'}")
+    if app.get("workspace_switcher") is not None:
+        extras.append(f"WS switcher: {'On' if app['workspace_switcher'] else 'Off'}")
+    if app.get("session_manager") is not None:
+        extras.append(f"Session mgr: {'On' if app['session_manager'] else 'Off'}")
     if extras:
         print(f"  {BOLD}Window Extras:{RESET} {' · '.join(extras)}")
     if not st["initialized"]:
@@ -435,8 +448,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         choices=["Auto", "WebGpu", "OpenGL", "Software"],
         help="WezTerm rendering backend (Auto, WebGpu, OpenGL, or Software)",
     )
-    parser.add_argument("--max-fps", type=int, metavar="FPS", help="Maximum rendering FPS (15-240, or 0 for default)")
-    parser.add_argument("--animation-fps", type=int, metavar="FPS", help="Animation & cursor blink FPS (1-240, or 0 for default)")
+    parser.add_argument("--max-fps", type=int, metavar="FPS", help="Maximum rendering FPS (15-255, or 0 for default)")
+    parser.add_argument("--animation-fps", type=int, metavar="FPS", help="Animation & cursor blink FPS (1-255, or 0 for default)")
     parser.add_argument(
         "--wayland",
         action=argparse.BooleanOptionalAction,
@@ -533,11 +546,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.blur is not None and not (0 <= args.blur <= 100):
         print(f"{RED}Error: --blur must be between 0 and 100.{RESET}", file=sys.stderr)
         return 1
-    if args.max_fps is not None and args.max_fps != 0 and not (15 <= args.max_fps <= 240):
-        print(f"{RED}Error: --max-fps must be between 15 and 240 (or 0 for default).{RESET}", file=sys.stderr)
+    if args.max_fps is not None and args.max_fps != 0 and not (15 <= args.max_fps <= 255):
+        print(f"{RED}Error: --max-fps must be between 15 and 255 (or 0 for default).{RESET}", file=sys.stderr)
         return 1
-    if args.animation_fps is not None and args.animation_fps != 0 and not (1 <= args.animation_fps <= 240):
-        print(f"{RED}Error: --animation-fps must be between 1 and 240 (or 0 for default).{RESET}", file=sys.stderr)
+    if args.animation_fps is not None and args.animation_fps != 0 and not (1 <= args.animation_fps <= 255):
+        print(f"{RED}Error: --animation-fps must be between 1 and 255 (or 0 for default).{RESET}", file=sys.stderr)
         return 1
     if args.cursor_color is not None and args.cursor_color not in ("Default", "off", "none", ""):
         import re as _re

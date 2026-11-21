@@ -9,6 +9,8 @@ from __future__ import annotations
 import io
 import json
 import os
+import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -17,6 +19,7 @@ import unittest
 import urllib.error
 import urllib.request
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
@@ -29,26 +32,34 @@ import wezterm_theme.fonts as fonts_mod
 from wezterm_theme.core import (
     MAX_PRE_RESTORE_BACKUPS,
     MAX_WEZTERM_LUA_BACKUPS,
-    _atomic_write_text,
     _backup_wezterm_lua,
     _find_tab_title_handlers,
     apply_appearance,
     apply_theme,
     backup_current_config,
+    detect_performance_warnings,
     disable_conflicting_tab_handlers,
     export_preset,
     get_available_backups,
     get_current_state,
     import_preset,
     init_wezterm_config,
+    normalize_appearance_updates,
     restore_backup,
     restore_disabled_tab_handlers,
     uninstall_wezterm_config,
     validate_theme_lua,
 )
 from wezterm_theme.fonts import get_color_scheme_palettes
-from wezterm_theme.paths import find_wezterm_cmd, get_cache_dir, get_platform_name, resolve_wezterm_paths
-from wezterm_theme.server import create_server
+from wezterm_theme.paths import (
+    atomic_write_text,
+    find_studio_cli,
+    find_wezterm_cmd,
+    get_cache_dir,
+    get_platform_name,
+    resolve_wezterm_paths,
+)
+from wezterm_theme.server import RequestError, _address_family_for_host, _parse_strict_int, create_server
 from wezterm_theme.themes import (
     AI_AGENTS,
     MIN_TAB_CONTRAST,
@@ -365,6 +376,8 @@ class ThemeCatalogAndSymbolsTests(unittest.TestCase):
                 "captured_cbs[tostring(pal_entries[2].action)](mock_win, mock_pane)",
                 "captured_cbs[tostring(pal_entries[3].action)](mock_win, mock_pane)",
                 "assert(captured_toast and captured_toast:find('Saved 2 tab'), 'session save failed: ' .. tostring(captured_toast))",
+                "-- Simulate restart: only an empty 'default' workspace is open now",
+                "wezterm.mux.all_windows = function() return { { get_workspace = function() return 'default' end, tabs = function() return {} end } } end",
                 "captured_cbs[tostring(pal_entries[4].action)](mock_win, mock_pane)",
                 "assert(spawned_ws == 1 and spawned_tabs == 2, 'session restore failed: ws=' .. tostring(spawned_ws) .. ' tabs=' .. tostring(spawned_tabs))",
                 "wezterm.action_callback = orig_ac",
@@ -1101,7 +1114,7 @@ class SecurityAndRobustnessTests(unittest.TestCase):
         link = self.tmp_path / "link.lua"
         link.symlink_to(real)
 
-        _atomic_write_text(link, "new\n")
+        atomic_write_text(link, "new\n")
         self.assertTrue(link.is_symlink())
         self.assertEqual(real.read_text(encoding="utf-8"), "new\n")
         self.assertEqual(real.stat().st_mode & 0o777, 0o640)
@@ -1290,6 +1303,861 @@ class BackupAndMaintenanceTests(unittest.TestCase):
             cache_file.write_text(json.dumps(fake), encoding="utf-8")
             with mock.patch.object(fonts_mod, "_wezterm_version", return_value=None):
                 self.assertEqual(fonts_mod.get_color_scheme_palettes()[0]["name"], "Fake 0")
+
+
+class Bugfix142Tests(unittest.TestCase):
+    """Regression tests for v1.4.2 high & medium priority bug fixes."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self._tmp.name)
+        self._old_env = os.environ.get("WEZTERM_CONFIG_FILE")
+        self.cfg_path = self.tmp_path / "wezterm.lua"
+        os.environ["WEZTERM_CONFIG_FILE"] = str(self.cfg_path)
+
+    def tearDown(self) -> None:
+        if self._old_env is None:
+            os.environ.pop("WEZTERM_CONFIG_FILE", None)
+        else:
+            os.environ["WEZTERM_CONFIG_FILE"] = self._old_env
+        self._tmp.cleanup()
+
+    def _write_basic_config(self) -> None:
+        self.cfg_path.write_text(
+            "local wezterm = require 'wezterm'\n"
+            "local config = wezterm.config_builder()\n"
+            "return config\n",
+            encoding="utf-8",
+        )
+
+    def test_open_in_editor_default_on_and_explicit_off(self) -> None:
+        lua_default = generate_lua_for_theme(get_theme_by_id(10), appearance=None)
+        self.assertIn("wezterm.on('open-uri'", lua_default)
+
+        lua_cmd_only = generate_lua_for_theme(get_theme_by_id(10), appearance={"editor_cmd": "hx"})
+        self.assertIn("wezterm.on('open-uri'", lua_cmd_only)
+        self.assertIn("'hx'", lua_cmd_only)
+
+        lua_off = generate_lua_for_theme(get_theme_by_id(10), appearance={"open_in_editor": False})
+        self.assertNotIn("wezterm.on('open-uri'", lua_off)
+
+    def test_doctor_reports_validation_skipped_when_wezterm_missing(self) -> None:
+        self._write_basic_config()
+        buf = io.StringIO()
+        with (
+            mock.patch("wezterm_theme.core.find_wezterm_cmd", return_value=None),
+            mock.patch("wezterm_theme.paths.find_wezterm_cmd", return_value=None),
+            redirect_stdout(buf),
+            redirect_stderr(io.StringIO()),
+        ):
+            rc = cli_main(["doctor"])
+        self.assertEqual(rc, 0)
+        out = buf.getvalue()
+        self.assertIn("Validation skipped", out)
+        self.assertNotIn("validated cleanly", out)
+
+    def test_backup_listing_uses_filename_stamp_and_seq_not_mtime(self) -> None:
+        bkp_dir = self.tmp_path / "backups"
+        bkp_dir.mkdir(parents=True)
+        files = [
+            ("tab_theme.lua.20261121-100000.bak", 1000.0, 1),
+            ("tab_theme.lua.20261121-100000-2.bak", 900.0, 2),
+            ("tab_theme.lua.20261121-100000-10.bak", 800.0, 3),
+            ("tab_theme.lua.20261121-100001.bak", 700.0, 4),
+        ]
+        for fname, mtime, tid in files:
+            p = bkp_dir / fname
+            p.write_text(f"-- Theme #{tid:02d}: T{tid} (Test)\nreturn {{}}\n", encoding="utf-8")
+            os.utime(p, (mtime, mtime))
+
+        listed = [b["filename"] for b in get_available_backups()]
+        self.assertEqual(
+            listed,
+            [
+                "tab_theme.lua.20261121-100001.bak",
+                "tab_theme.lua.20261121-100000-10.bak",
+                "tab_theme.lua.20261121-100000-2.bak",
+                "tab_theme.lua.20261121-100000.bak",
+            ],
+        )
+
+    def test_enum_validation_fps_cap_font_reset_and_block_comments(self) -> None:
+        self._write_basic_config()
+        ok, msg = init_wezterm_config()
+        self.assertTrue(ok, msg)
+
+        for bad in (
+            {"front_end": "Vulkan"},
+            {"win32_backdrop": "Glass"},
+            {"cursor_style": "Beam"},
+            {"audible_bell": "Loud"},
+            {"window_decorations": "INVALID_FLAG"},
+            {"max_fps": 500},
+            {"animation_fps": 500},
+        ):
+            ok, err = apply_appearance(bad)
+            self.assertFalse(ok, f"Should reject {bad}")
+            self.assertTrue(err)
+
+        # Case-insensitive auto and resetting fonts to Default in Standalone mode
+        ok, err = apply_appearance({
+            "font_family": "JetBrains Mono",
+            "tab_font_family": "Fira Code",
+            "use_fancy_tab_bar": "AUTO",
+            "enable_wayland": "Auto",
+            "window_decorations": "TITLE | RESIZE",
+        })
+        self.assertTrue(ok, err)
+        self.assertEqual(get_current_state()["appearance"]["font_family"], "JetBrains Mono")
+        self.assertEqual(get_current_state()["appearance"]["tab_font_family"], "Fira Code")
+
+        ok, err = apply_appearance({"font_family": "Default", "tab_font_family": "Default"})
+        self.assertTrue(ok, err)
+        self.assertIsNone(get_current_state()["appearance"]["font_family"])
+        self.assertIsNone(get_current_state()["appearance"]["tab_font_family"])
+
+        # Block comments must not trigger Software renderer performance warnings
+        self.cfg_path.write_text(
+            "local wezterm = require 'wezterm'\n"
+            "local config = wezterm.config_builder()\n"
+            "--[[ config.front_end = 'Software'\nconfig.animation_fps = 60 ]]\n"
+            "return config\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(detect_performance_warnings(appearance={}), [])
+
+        # Loader mode font reset and reset sentinels
+        (self.tmp_path / "defaults.json").write_text("{}", encoding="utf-8")
+        (self.tmp_path / "settings.json").write_text("{}", encoding="utf-8")
+        self.cfg_path.write_text("-- WezTerm loader\nreturn {}\n", encoding="utf-8")
+        ok, err = apply_appearance({"font_family": "Hack", "tab_font_family": "Hack", "color_scheme": "Dracula"})
+        self.assertTrue(ok, err)
+        ok, err = apply_appearance({"font_family": "Default", "tab_font_family": "none", "color_scheme": "Auto"})
+        self.assertTrue(ok, err)
+        saved_settings = json.loads((self.tmp_path / "settings.json").read_text(encoding="utf-8"))
+        self.assertNotIn("family", saved_settings.get("font", {}))
+        self.assertNotIn("family", saved_settings.get("tabs", {}).get("frame_font", {}))
+        self.assertNotIn("scheme", saved_settings.get("colors", {}))
+
+    def test_init_ignores_commented_return_and_handles_return_table(self) -> None:
+        self.cfg_path.write_text(
+            "local wezterm = require 'wezterm'\n"
+            "return {\n"
+            "  font_size = 12,\n"
+            "}\n"
+            "-- return fake_config\n"
+            "--[[ return other_config ]]\n",
+            encoding="utf-8",
+        )
+        ok, msg = init_wezterm_config()
+        self.assertTrue(ok, msg)
+        txt = self.cfg_path.read_text(encoding="utf-8")
+        self.assertIn("local _wt_config = {", txt)
+        self.assertIn("return _wt_config", txt)
+        self.assertLess(txt.index("return _wt_config"), txt.index("-- return fake_config"))
+
+    def test_failed_validation_does_not_create_backup(self) -> None:
+        self._write_basic_config()
+        ok, msg = init_wezterm_config()
+        self.assertTrue(ok, msg)
+        before_bkps = list((self.tmp_path / "backups").glob("tab_theme.lua.*.bak"))
+        with mock.patch("wezterm_theme.core.validate_theme_lua", return_value="syntax error"):
+            ok, bkp, err = apply_theme(get_theme_by_id(5))
+        self.assertFalse(ok)
+        self.assertIsNone(bkp)
+        self.assertIn("syntax error", err or "")
+        after_bkps = list((self.tmp_path / "backups").glob("tab_theme.lua.*.bak"))
+        self.assertEqual(len(after_bkps), len(before_bkps))
+
+    def test_fonts_is_nerd_detects_nfm_and_nfp(self) -> None:
+        with (
+            mock.patch.object(fonts_mod, "_FONTS_CACHE", None),
+            mock.patch.object(fonts_mod, "_wezterm_list_fonts", return_value=(set(), set(), {})),
+            mock.patch.object(
+                fonts_mod,
+                "_fc_list_mono_families",
+                return_value={"VictorMono NFM", "CascadiaCode NFP", "Hack NF", "DejaVu Sans Mono"},
+            ),
+        ):
+            by_name = {f["name"]: f["is_nerd"] for f in fonts_mod.get_installed_fonts(refresh=True)}
+        self.assertTrue(by_name["VictorMono NFM"])
+        self.assertTrue(by_name["CascadiaCode NFP"])
+        self.assertTrue(by_name["Hack NF"])
+        self.assertFalse(by_name["DejaVu Sans Mono"])
+
+    def test_ipv6_loopback_server_and_strict_int_validation(self) -> None:
+        self._write_basic_config()
+        try:
+            httpd, _ = create_server(host="::1", port=0)
+        except OSError:
+            self.skipTest("IPv6 loopback ::1 not available in this environment")
+        port = httpd.server_address[1]
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://[::1]:{port}"
+        good = {"Content-Type": "application/json", "X-Studio-Token": httpd.studio_token}
+        try:
+            with urllib.request.urlopen(f"{base}/api/bootstrap") as resp:
+                self.assertEqual(resp.status, 200)
+                boot = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(boot["ok"])
+
+            # Reject JSON booleans as theme_id / tab_title_len
+            for bad_payload in ({"theme_id": True}, {"theme_id": 10, "tab_title_len": False}):
+                req = urllib.request.Request(
+                    f"{base}/api/apply-tab-theme",
+                    data=json.dumps(bad_payload).encode("utf-8"),
+                    headers=good,
+                    method="POST",
+                )
+                with self.assertRaises(urllib.error.HTTPError) as ctx:
+                    urllib.request.urlopen(req)
+                self.assertEqual(ctx.exception.code, 400)
+                ctx.exception.close()
+
+            # /api/apply-tab-theme must include updated warnings
+            req = urllib.request.Request(
+                f"{base}/api/apply-tab-theme",
+                data=json.dumps({"theme_id": 10}).encode("utf-8"),
+                headers=good,
+                method="POST",
+            )
+            with urllib.request.urlopen(req) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                self.assertTrue(data["ok"])
+                self.assertIn("warnings", data)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+    def test_lua_runtime_session_restore_default_oled_ligatures_git_and_powerline(self) -> None:
+        wz = find_wezterm_cmd()
+        if not wz:
+            self.skipTest("wezterm binary not installed")
+
+        snap_file = self.tmp_path / "custom_session.json"
+        snap_file.write_text(
+            json.dumps({
+                "schema": "wezterm-studio-session/v1",
+                "saved_at": "2026-11-21T14:00:00",
+                "active_workspace": "default",
+                "workspaces": [
+                    {
+                        "name": "default",
+                        "tabs": [
+                            {"title": "home", "cwd": "/home/u"},
+                            {"title": "projA", "cwd": "/proj/a"},
+                            {"title": "projB", "cwd": "/proj/b"},
+                        ],
+                    },
+                    {
+                        "name": "work",
+                        "tabs": [
+                            {"title": "api", "cwd": "/work/api"},
+                            {"title": "web", "cwd": "/work/web"},
+                        ],
+                    },
+                ],
+            }),
+            encoding="utf-8",
+        )
+
+        # Fake git repo & non-git dir to verify zero subprocess in normal repos and non-git dirs
+        fake_repo = self.tmp_path / "myrepo"
+        (fake_repo / ".git").mkdir(parents=True)
+        (fake_repo / ".git" / "HEAD").write_text("ref: refs/heads/feat/v142\n", encoding="utf-8")
+        non_repo = self.tmp_path / "plain_dir"
+        non_repo.mkdir()
+
+        mod_oled_plain = self.tmp_path / "mod_oled_plain.lua"
+        mod_oled_plain.write_text(
+            generate_lua_for_theme(
+                get_theme_by_id(11),  # Powerline style
+                appearance={
+                    "oled_black": True,
+                    "font_ligatures": False,
+                    "status_bar": True,
+                    "ssh_alert": True,
+                    "command_palette": True,
+                    "session_manager": True,
+                },
+                session_path=snap_file.as_posix(),
+            ),
+            encoding="utf-8",
+        )
+        mod_oled_light = self.tmp_path / "mod_oled_light.lua"
+        mod_oled_light.write_text(
+            generate_lua_for_theme(
+                get_theme_by_id(62),  # workspace_color style
+                appearance={
+                    "color_scheme": "Catppuccin Mocha",
+                    "color_scheme_light": "Catppuccin Latte",
+                    "oled_black": True,
+                },
+            ),
+            encoding="utf-8",
+        )
+
+        harness = self.tmp_path / "harness_142.lua"
+        harness.write_text(
+            "\n".join([
+                "local real_wz = require 'wezterm'",
+                "local captured_cbs = {}",
+                "local format_tab_cb, update_status_cb",
+                "local child_calls = 0",
+                "local mock_wz = setmetatable({",
+                "  GLOBAL = {},",
+                "  gui = { get_appearance = function() return 'Light' end },",
+                "  on = function(ev, cb)",
+                "    if ev == 'format-tab-title' then format_tab_cb = cb end",
+                "    if ev == 'update-status' then update_status_cb = cb end",
+                "  end,",
+                "  action_callback = function(fn)",
+                "    local u = real_wz.action_callback(fn)",
+                "    captured_cbs[tostring(u)] = fn",
+                "    return u",
+                "  end,",
+                "  run_child_process = function(argv)",
+                "    child_calls = child_calls + 1",
+                "    return true, 'fallback-branch\\n', ''",
+                "  end,",
+                "  battery_info = function() return {} end,",
+                "  config_dir = " + _lua_str(self.tmp_path.as_posix()) + ",",
+                "}, { __index = real_wz })",
+                "",
+                "-- 1) OLED without light scheme MUST apply #000000 even in OS Light mode",
+                "local cfg1 = {}",
+                f"local m1 = dofile({_lua_str(mod_oled_plain.as_posix())})",
+                "m1.apply(cfg1, mock_wz)",
+                "local powerline_fmt_cb = format_tab_cb",
+                "assert(cfg1.colors and cfg1.colors.background == '#000000', 'OLED failed in Light OS without light scheme')",
+                "",
+                "-- 2) OLED with light scheme MUST NOT force #000000 in OS Light mode",
+                "local cfg2 = {}",
+                f"local m2 = dofile({_lua_str(mod_oled_light.as_posix())})",
+                "m2.apply(cfg2, mock_wz)",
+                "local ws_fmt_cb = format_tab_cb",
+                "assert(not (cfg2.colors and cfg2.colors.background == '#000000'), 'OLED wrongly forced black when light scheme is active')",
+                "",
+                "-- 3) Toggle Programming Ligatures respects initial config.harfbuzz_features on 1st press",
+                "local entries = m1.command_palette_entries(cfg1, mock_wz)",
+                "local toggle_lig_fn, restore_fn",
+                "for _, e in ipairs(entries) do",
+                "  if e.brief:find('Toggle Programming Ligatures') then toggle_lig_fn = captured_cbs[tostring(e.action)] end",
+                "  if e.brief:find('Restore Saved Workspace Session') then restore_fn = captured_cbs[tostring(e.action)] end",
+                "end",
+                "assert(toggle_lig_fn and restore_fn, 'Missing command palette callbacks')",
+                "local cur_ov = {}",
+                "local fake_win = {",
+                "  get_config_overrides = function() return cur_ov end,",
+                "  set_config_overrides = function(_, o) cur_ov = o end,",
+                "  perform_action = function() end,",
+                "  toast_notification = function() end,",
+                "  active_workspace = function() return 'default' end,",
+                "  active_key_table = function() return nil end,",
+                "  set_right_status = function() end,",
+                "}",
+                "toggle_lig_fn(fake_win, {})",
+                "assert(type(cur_ov.harfbuzz_features) == 'table' and #cur_ov.harfbuzz_features == 0, '1st toggle should enable ligatures')",
+                "toggle_lig_fn(fake_win, {})",
+                "assert(#cur_ov.harfbuzz_features == 3, '2nd toggle should disable ligatures')",
+                "",
+                "-- 4) Session Restore restores missing tabs in existing 'default' workspace AND is idempotent",
+                "local default_tabs = { { cwd = '/home/u', title = '' } }",
+                "local function make_tab_obj(t)",
+                "  return {",
+                "    active_pane = function() return { get_current_working_dir = function() return { file_path = t.cwd } end } end,",
+                "    set_title = function(_, s) t.title = s end,",
+                "  }",
+                "end",
+                "local all_wins = {}",
+                "local function make_win(ws, init_tabs)",
+                "  local w = { ws = ws, _tabs = init_tabs }",
+                "  function w:get_workspace() return self.ws end",
+                "  function w:tabs()",
+                "    local out = {}",
+                "    for _, t in ipairs(self._tabs) do table.insert(out, make_tab_obj(t)) end",
+                "    return out",
+                "  end",
+                "  function w:spawn_tab(opts)",
+                "    local t = { cwd = (opts and opts.cwd) or '', title = '' }",
+                "    table.insert(self._tabs, t)",
+                "    return make_tab_obj(t)",
+                "  end",
+                "  return w",
+                "end",
+                "table.insert(all_wins, make_win('default', default_tabs))",
+                "mock_wz.mux = {",
+                "  all_windows = function() return all_wins end,",
+                "  spawn_window = function(opts)",
+                "    local t1 = { cwd = (opts and opts.cwd) or '', title = '' }",
+                "    local nw = make_win(opts.workspace or 'default', { t1 })",
+                "    table.insert(all_wins, nw)",
+                "    return make_tab_obj(t1), nil, nw",
+                "  end,",
+                "}",
+                "restore_fn(fake_win, {})",
+                "assert(#all_wins == 2, 'Expected default + work windows, got ' .. tostring(#all_wins))",
+                "assert(#all_wins[1]._tabs == 3, 'Expected 3 tabs in default workspace, got ' .. tostring(#all_wins[1]._tabs))",
+                "assert(all_wins[1]._tabs[2].cwd == '/proj/a' and all_wins[1]._tabs[3].cwd == '/proj/b', 'Wrong restored default tabs')",
+                "assert(#all_wins[2]._tabs == 2 and all_wins[2].ws == 'work', 'Wrong restored work workspace')",
+                "-- Running restore a second time must not duplicate any tabs",
+                "restore_fn(fake_win, {})",
+                "assert(#all_wins == 2 and #all_wins[1]._tabs == 3 and #all_wins[2]._tabs == 2, 'Restore was not idempotent')",
+                "",
+                "-- 5) Pure-Lua git branch check skips subprocess in non-git dir and normal git repo",
+                "local right_status_val = ''",
+                "fake_win.set_right_status = function(_, v) right_status_val = v end",
+                "local function fake_pane_for(p)",
+                "  return {",
+                "    get_current_working_dir = function() return { file_path = p } end,",
+                "    get_domain_name = function() return 'local' end,",
+                "    get_user_vars = function() return {} end,",
+                "    get_foreground_process_name = function() return '/bin/bash' end,",
+                "    get_title = function() return '' end,",
+                "    pane_id = function() return 1 end,",
+                "  }",
+                "end",
+                f"update_status_cb(fake_win, fake_pane_for({_lua_str(non_repo.as_posix())}))",
+                "assert(child_calls == 0, 'Non-git dir should not spawn git subprocess')",
+                f"update_status_cb(fake_win, fake_pane_for({_lua_str(fake_repo.as_posix())}))",
+                "assert(child_calls == 0, 'Normal git repo should read .git/HEAD without subprocess')",
+                "assert(right_status_val:find('feat/v142', 1, true), 'Git branch feat/v142 not rendered in status bar')",
+                "",
+                "-- 6) Powerline separator uses next tab SSH/PROD danger tint",
+                "local t_local = { tab_index = 0, is_active = true, tab_title = '', panes = { {} }, active_pane = { current_working_dir = '/tmp', foreground_process_name = '/bin/bash', title = 'bash', user_vars = {} } }",
+                "local t_prod = { tab_index = 1, is_active = false, tab_title = '', panes = { {} }, active_pane = { current_working_dir = '/tmp', foreground_process_name = '/usr/bin/ssh', title = 'ssh', user_vars = { WEZTERM_PROG = 'ssh root@prod-db-01' } } }",
+                "local fmt_out = powerline_fmt_cb(t_local, { t_local, t_prod }, {}, cfg1, false, 40)",
+                "assert(tostring(fmt_out):find('#dc2626', 1, true) or tostring(fmt_out):match('220[:;]38[:;]38'), 'Powerline separator did not use prod crimson bg: ' .. tostring(fmt_out))",
+                "",
+                "-- 7) workspace_color truncates multi-byte UTF-8 workspace names cleanly",
+                "mock_wz.mux.get_active_workspace = function() return 'ação-rápida-dev' end",
+                "local ws_out = ws_fmt_cb(t_local, { t_local }, {}, cfg2, false, 40)",
+                "assert(tostring(ws_out):find('[ação-rá…]', 1, true), 'UTF-8 workspace name corrupted: ' .. tostring(ws_out))",
+                "",
+                "return real_wz.config_builder()",
+            ]),
+            encoding="utf-8",
+        )
+        res = subprocess.run(
+            [*wz, "--config-file", str(harness), "ls-fonts", "--text", "a"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        errors = [ln for ln in res.stderr.splitlines() if " ERROR " in ln]
+        self.assertEqual(errors, [], f"Lua harness errors:\n{res.stderr}")
+        self.assertEqual(res.returncode, 0, res.stderr)
+
+
+class ReviewFollowup142Tests(unittest.TestCase):
+    """Regression tests for the v1.4.2 code-review follow-up fixes."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self._tmp.name)
+        self._old_env = os.environ.get("WEZTERM_CONFIG_FILE")
+        self.cfg_path = self.tmp_path / "wezterm.lua"
+        os.environ["WEZTERM_CONFIG_FILE"] = str(self.cfg_path)
+
+    def tearDown(self) -> None:
+        if self._old_env is None:
+            os.environ.pop("WEZTERM_CONFIG_FILE", None)
+        else:
+            os.environ["WEZTERM_CONFIG_FILE"] = self._old_env
+        self._tmp.cleanup()
+
+    def _no_validation(self) -> mock._patch:
+        return mock.patch("wezterm_theme.core.validate_config", return_value=None)
+
+    def test_init_hooks_the_top_level_return_not_a_helper_function(self) -> None:
+        self.cfg_path.write_text(
+            "local wezterm = require 'wezterm'\n"
+            "local function pick(x)\n"
+            "  return x\n"
+            "end\n"
+            "return {\n"
+            "  font_size = 12,\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        ok, msg = init_wezterm_config()
+        self.assertTrue(ok, msg)
+        text = self.cfg_path.read_text(encoding="utf-8")
+        self.assertIn("local function pick(x)\n  return x\nend\n", text)
+        self.assertNotIn("_wt_m.apply(x,", text)
+        self.assertIn("_wt_m.apply(_wt_config,", text)
+        self.assertTrue(text.rstrip().endswith("return _wt_config"), text)
+
+    def test_restoring_the_oldest_pre_restore_backup_keeps_its_settings(self) -> None:
+        theme = get_theme_by_id(3)
+        with self._no_validation():
+            self.assertTrue(apply_theme(theme, appearance_updates={"font_size": 11})[0])
+            oldest = backup_current_config(label="pre_restore")
+            for size in range(12, 12 + MAX_PRE_RESTORE_BACKUPS - 1):
+                apply_theme(theme, appearance_updates={"font_size": size})
+                backup_current_config(label="pre_restore")
+            apply_theme(theme, appearance_updates={"font_size": 30})
+            ok, msg = restore_backup(oldest.name)
+        self.assertTrue(ok, msg)
+        self.assertEqual(get_current_state()["appearance"]["font_size"], 11)
+        self.assertTrue(oldest.is_file(), "the restored backup was pruned while restoring it")
+
+    def test_init_rollback_and_uninstall_keep_crlf_line_endings(self) -> None:
+        original = b"local wezterm = require 'wezterm'\r\nlocal config = {}\r\nreturn config\r\n"
+        self.cfg_path.write_bytes(original)
+
+        def broken_hook(path: Path) -> str | None:
+            text = Path(path).read_text(encoding="utf-8")
+            return "12:00:00.000  ERROR  lua: boom" if "wezterm-theme >>>" in text else None
+
+        with mock.patch("wezterm_theme.core.validate_config", side_effect=broken_hook):
+            ok, _ = init_wezterm_config()
+        self.assertFalse(ok)
+        self.assertEqual(self.cfg_path.read_bytes(), original, "rollback changed the line endings")
+
+        with self._no_validation():
+            self.assertTrue(init_wezterm_config()[0])
+            data = self.cfg_path.read_bytes()
+            self.assertEqual(data.count(b"\r\n"), data.count(b"\n"), "init mixed LF into a CRLF file")
+            self.assertTrue(uninstall_wezterm_config()[0])
+        self.assertEqual(self.cfg_path.read_bytes(), original)
+
+    def test_init_never_replaces_invalid_state_json_and_ignores_bad_saved_values(self) -> None:
+        state_json = self.tmp_path / "wezterm_theme.json"
+        state_json.write_text('{"theme_id": 5,}\n', encoding="utf-8")
+        with self._no_validation():
+            ok, msg = init_wezterm_config()
+        self.assertFalse(ok)
+        self.assertIn("not valid JSON", msg)
+        self.assertEqual(state_json.read_text(encoding="utf-8"), '{"theme_id": 5,}\n')
+
+        saved = '{"theme_id": 5, "appearance": {"window_blur": "abc", "font_size": 14}}\n'
+        state_json.write_text(saved, encoding="utf-8")
+        with self._no_validation():
+            ok, msg = init_wezterm_config()
+        self.assertTrue(ok, msg)
+        self.assertEqual(state_json.read_text(encoding="utf-8"), saved, "a valid state file was rewritten")
+        app = get_current_state()["appearance"]
+        self.assertEqual(app["font_size"], 14)
+        self.assertIsNone(app["window_blur"])
+
+    def test_errors_already_in_the_user_config_do_not_block_changes(self) -> None:
+        with self._no_validation():
+            self.assertTrue(apply_theme(get_theme_by_id(3))[0])
+        studio_lua = self.tmp_path / "wezterm_theme.lua"
+        old_error = "12:00:00.000  ERROR  lua: user typo in wezterm.lua"
+
+        def fake_validate(path: Path) -> str | None:
+            if Path(path) != self.cfg_path:
+                return None  # the generated module validated on its own is fine
+            errors = [old_error]
+            if "-- Theme #05:" in studio_lua.read_text(encoding="utf-8"):
+                errors.append("12:00:01.000  ERROR  lua: broken by the change")
+            return "\n".join(errors)
+
+        with mock.patch("wezterm_theme.core.validate_config", side_effect=fake_validate):
+            ok, _, err = apply_theme(get_theme_by_id(4))
+            self.assertTrue(ok, err)
+            ok, _, err = apply_theme(get_theme_by_id(5))
+        self.assertFalse(ok)
+        self.assertIn("broken by the change", err or "")
+        self.assertIn("-- Theme #04:", studio_lua.read_text(encoding="utf-8"))
+
+    def test_backups_stay_ordered_when_the_clock_goes_back(self) -> None:
+        with self._no_validation():
+            self.assertTrue(apply_theme(get_theme_by_id(3))[0])
+
+        class FakeDateTime(datetime):
+            current = datetime(2026, 11, 1, 1, 30, 0)
+
+            @classmethod
+            def now(cls, tz=None):  # type: ignore[override]
+                return cls.current
+
+        with mock.patch("wezterm_theme.core.datetime", FakeDateTime):
+            backup_current_config()
+            FakeDateTime.current = datetime(2026, 11, 1, 1, 0, 0)  # DST fall-back
+            after = backup_current_config()
+            self.assertEqual(get_available_backups()[0]["filename"], after.name)
+            for _ in range(25):
+                newest = backup_current_config()
+                self.assertTrue(newest.is_file(), "the newest backup was pruned as the oldest")
+
+    def test_python_m_propagates_the_exit_code(self) -> None:
+        env = {**os.environ, "PYTHONPATH": str(SRC_DIR), "WEZTERM_CONFIG_FILE": str(self.cfg_path)}
+        res = subprocess.run(
+            [sys.executable, "-m", "wezterm_theme", "-s", "no-such-theme-xyz"],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=60,
+        )
+        self.assertNotEqual(res.returncode, 0, res.stdout + res.stderr)
+
+    def test_superscript_digits_are_rejected_instead_of_crashing(self) -> None:
+        self.assertIsNone(find_theme("²"))
+        with self._no_validation():
+            self.assertTrue(apply_theme(get_theme_by_id(3))[0])
+            backup_current_config(label="manual")
+            ok, _ = restore_backup("³")
+        self.assertFalse(ok)
+
+    def test_import_preset_resets_missing_settings_and_skips_invalid_ones(self) -> None:
+        with self._no_validation():
+            self.assertTrue(
+                apply_theme(
+                    get_theme_by_id(3),
+                    appearance_updates={"window_blur": 40, "color_scheme_light": "Catppuccin Latte", "font_size": 13},
+                )[0]
+            )
+            ok, msg = import_preset({
+                "theme_id": 7,
+                "tab_title_len": 20,
+                "appearance": {"font_size": 15, "max_fps": 250, "cursor_style": "Bogus"},
+            })
+        self.assertTrue(ok, msg)
+        self.assertIn("cursor_style", msg)
+        state = get_current_state()
+        self.assertEqual(state["theme_id"], 7)
+        self.assertEqual(state["appearance"]["font_size"], 15)
+        self.assertEqual(state["appearance"]["max_fps"], 250)
+        self.assertIsNone(state["appearance"]["window_blur"])
+        self.assertIsNone(state["appearance"]["color_scheme_light"])
+
+    def test_reset_values_become_none_in_both_modes(self) -> None:
+        resets = {
+            "cursor_color": "Auto",
+            "color_scheme": "off",
+            "cursor_style": "",
+            "audible_bell": "Default",
+            "window_decorations": "",
+            "win32_backdrop": "Auto",
+        }
+        self.assertEqual(normalize_appearance_updates(resets), dict.fromkeys(resets))
+
+        (self.tmp_path / "defaults.json").write_text("{}\n", encoding="utf-8")
+        settings = self.tmp_path / "settings.json"
+        settings.write_text(
+            json.dumps({"colors": {"cursor_color": "#ffffff", "scheme": "Dracula"}, "cursor": {"style": "SteadyBar"}}),
+            encoding="utf-8",
+        )
+        with self._no_validation():
+            ok, err = apply_appearance({"cursor_color": "Auto", "color_scheme": "none", "cursor_style": "Default"})
+        self.assertTrue(ok, err)
+        data = json.loads(settings.read_text(encoding="utf-8"))
+        self.assertNotIn("cursor_color", data["colors"])
+        self.assertNotIn("scheme", data["colors"])
+        self.assertNotIn("style", data["cursor"])
+
+    def test_module_update_does_not_touch_wezterm_lua_again(self) -> None:
+        with self._no_validation():
+            self.assertTrue(apply_theme(get_theme_by_id(3))[0])
+            os.utime(self.cfg_path, (1_000_000_000, 1_000_000_000))
+            self.assertTrue(apply_theme(get_theme_by_id(4))[0])
+        self.assertEqual(self.cfg_path.stat().st_mtime, 1_000_000_000)
+
+    def test_software_front_end_in_wezterm_lua_is_detected(self) -> None:
+        self.cfg_path.write_text(
+            "local config = {}\nconfig.front_end = 'Software'\nconfig.animation_fps = 60\nreturn config\n",
+            encoding="utf-8",
+        )
+        warnings = detect_performance_warnings(appearance={})
+        self.assertTrue(any("front_end='Software'" in w for w in warnings), warnings)
+
+        self.cfg_path.write_text(
+            "local config = {}\n"
+            "-- config.front_end = 'Software'\n"
+            "if config.front_end == 'Software' then end\n"
+            "return config\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(detect_performance_warnings(appearance={}), [])
+
+    @unittest.skipUnless(Path("/dev/null").exists(), "needs /dev/null")
+    def test_export_preset_to_a_non_regular_file(self) -> None:
+        raw, dest = export_preset(Path("/dev/null"))
+        self.assertEqual(dest, Path("/dev/null"))
+        self.assertIn('"schema"', raw)
+
+    def test_session_module_keeps_a_portable_fallback_path(self) -> None:
+        lua = generate_lua_for_theme(
+            get_theme_by_id(3),
+            appearance={"command_palette": True, "session_manager": True},
+            session_path="/home/alice/.config/wezterm/wezterm_session.json",
+        )
+        fn = lua[lua.index("local function _wt_session_paths()") :]
+        fn = fn[: fn.index("\n  end\n")]
+        self.assertIn("/home/alice/.config/wezterm/wezterm_session.json", fn)
+        self.assertIn("wezterm.config_dir", fn)
+
+    @unittest.skipIf(os.name == "nt", "symlinks need extra privileges on Windows")
+    def test_find_studio_cli_keeps_shim_and_venv_paths(self) -> None:
+        real = self.tmp_path / "Cellar" / "1.0" / "bin" / "wezterm-theme"
+        real.parent.mkdir(parents=True)
+        real.write_text("#!/bin/sh\n", encoding="utf-8")
+        shim = self.tmp_path / "bin" / "wezterm-theme"
+        shim.parent.mkdir()
+        shim.symlink_to(real)
+        with mock.patch("wezterm_theme.paths.shutil.which", return_value=str(shim)):
+            self.assertEqual(find_studio_cli(), str(shim))
+
+        venv_bin = self.tmp_path / "venv" / "bin"
+        venv_bin.mkdir(parents=True)
+        (venv_bin / "python").symlink_to(sys.executable)
+        (venv_bin / "wezterm-theme").write_text("#!/bin/sh\n", encoding="utf-8")
+        with (
+            mock.patch("wezterm_theme.paths.shutil.which", return_value=None),
+            mock.patch.object(sys, "argv", ["not-the-cli"]),
+            mock.patch.object(sys, "executable", str(venv_bin / "python")),
+        ):
+            self.assertEqual(find_studio_cli(), str(venv_bin / "wezterm-theme"))
+
+    def test_server_prefers_ipv4_and_rejects_non_integer_ids(self) -> None:
+        infos = [
+            (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::1", 0, 0, 0)),
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0)),
+        ]
+        with mock.patch("wezterm_theme.server.socket.getaddrinfo", return_value=infos):
+            self.assertEqual(_address_family_for_host("localhost"), socket.AF_INET)
+        self.assertEqual(_address_family_for_host("::1"), socket.AF_INET6)
+
+        for bad in (float("inf"), 10.9, "1e3", True, None, [1]):
+            with self.assertRaises(RequestError, msg=repr(bad)) as ctx:
+                _parse_strict_int("theme_id", bad)
+            self.assertEqual(ctx.exception.status, 400)
+        self.assertEqual(_parse_strict_int("theme_id", 10.0), 10)
+        self.assertEqual(_parse_strict_int("theme_id", " 12 "), 12)
+
+    def test_lua_runtime_git_fallbacks_editor_args_ligatures_and_session_fallback(self) -> None:
+        wz = find_wezterm_cmd()
+        if not wz:
+            self.skipTest("wezterm binary not installed")
+
+        deep_repo = self.tmp_path / "deeprepo"
+        (deep_repo / ".git").mkdir(parents=True)
+        (deep_repo / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+        deep_dir = deep_repo.joinpath(*["d"] * 21)
+        deep_dir.mkdir(parents=True)
+        reftable_repo = self.tmp_path / "reftable"
+        (reftable_repo / ".git").mkdir(parents=True)
+        (reftable_repo / ".git" / "HEAD").write_text("ref: refs/heads/.invalid\n", encoding="utf-8")
+
+        mod = self.tmp_path / "mod_review.lua"
+        mod.write_text(
+            generate_lua_for_theme(
+                get_theme_by_id(3),
+                appearance={
+                    "status_bar": True,
+                    "open_in_editor": True,
+                    "editor_cmd": "code --wait",
+                    "command_palette": True,
+                    "session_manager": True,
+                },
+                session_path="/nonexistent-wezterm-theme-dir/wezterm_session.json",
+            ),
+            encoding="utf-8",
+        )
+        harness = self.tmp_path / "harness_review.lua"
+        harness.write_text(
+            "\n".join([
+                "local real_wz = require 'wezterm'",
+                "local captured_cbs = {}",
+                "local update_status_cb, open_uri_cb",
+                "local child_calls = 0",
+                "local mock_wz = setmetatable({",
+                "  GLOBAL = {},",
+                "  on = function(ev, cb)",
+                "    if ev == 'update-status' then update_status_cb = cb end",
+                "    if ev == 'open-uri' then open_uri_cb = cb end",
+                "  end,",
+                "  action = setmetatable({",
+                "    SpawnCommandInNewTab = function(t) return { spawn = t } end,",
+                "  }, { __index = real_wz.action }),",
+                "  action_callback = function(fn)",
+                "    local u = real_wz.action_callback(fn)",
+                "    captured_cbs[tostring(u)] = fn",
+                "    return u",
+                "  end,",
+                "  run_child_process = function(argv)",
+                "    child_calls = child_calls + 1",
+                "    return true, 'cli-branch\\n', ''",
+                "  end,",
+                "  battery_info = function() return {} end,",
+                "  config_dir = " + _lua_str(self.tmp_path.as_posix()) + ",",
+                "}, { __index = real_wz })",
+                "local cfg = { harfbuzz_features = { 'zero', 'ss01' } }",
+                f"local m = dofile({_lua_str(mod.as_posix())})",
+                "m.apply(cfg, mock_wz)",
+                "local status = ''",
+                "local performed = nil",
+                "local cur_ov = {}",
+                "local win = {",
+                "  get_config_overrides = function() return cur_ov end,",
+                "  set_config_overrides = function(_, o) cur_ov = o end,",
+                "  perform_action = function(_, a) performed = a end,",
+                "  toast_notification = function() end,",
+                "  active_workspace = function() return 'default' end,",
+                "  active_key_table = function() return nil end,",
+                "  leader_is_active = function() return false end,",
+                "  set_right_status = function(_, v) status = v end,",
+                "}",
+                "local function pane_for(p)",
+                "  return {",
+                "    get_current_working_dir = function() return { file_path = p } end,",
+                "    get_domain_name = function() return 'local' end,",
+                "    get_user_vars = function() return {} end,",
+                "    get_foreground_process_name = function() return '/bin/bash' end,",
+                "    get_title = function() return '' end,",
+                "    pane_id = function() return 1 end,",
+                "  }",
+                "end",
+                "",
+                "-- Git: a walk that runs out of levels, and a reftable stub HEAD, ask git itself",
+                f"update_status_cb(win, pane_for({_lua_str(deep_dir.as_posix())}))",
+                "assert(child_calls == 1, 'deep cwd should fall back to git, calls=' .. child_calls)",
+                f"update_status_cb(win, pane_for({_lua_str(reftable_repo.as_posix())}))",
+                "assert(child_calls == 2, 'reftable HEAD should fall back to git, calls=' .. child_calls)",
+                "assert(status:find('cli-branch', 1, true) and not status:find('.invalid', 1, true), 'bad branch: ' .. status)",
+                "",
+                "-- Editor commands with arguments are split into argv",
+                "open_uri_cb(win, pane_for('/tmp'), 'editfile:///srv/app/main.py:12')",
+                "local args = performed and performed.spawn and performed.spawn.args",
+                "assert(args and table.concat(args, ' ') == 'code --wait -g /srv/app/main.py:12', 'bad editor argv: ' .. (args and table.concat(args, ' ') or 'nil'))",
+                "",
+                "-- Ligature toggle keeps unrelated harfbuzz features",
+                "local toggle_fn, save_fn",
+                "for _, e in ipairs(m.command_palette_entries(cfg, mock_wz)) do",
+                "  if e.brief:find('Toggle Programming Ligatures') then toggle_fn = captured_cbs[tostring(e.action)] end",
+                "  if e.brief:find('Save Workspace Session') then save_fn = captured_cbs[tostring(e.action)] end",
+                "end",
+                "toggle_fn(win, {})",
+                "assert(table.concat(cur_ov.harfbuzz_features, ',') == 'zero,ss01,calt=0,clig=0,liga=0', '1st toggle: ' .. table.concat(cur_ov.harfbuzz_features, ','))",
+                "toggle_fn(win, {})",
+                "assert(table.concat(cur_ov.harfbuzz_features, ',') == 'zero,ss01', '2nd toggle: ' .. table.concat(cur_ov.harfbuzz_features, ','))",
+                "",
+                "-- Session snapshot falls back to config_dir when the baked-in path is unusable",
+                "mock_wz.mux = { all_windows = function() return {",
+                "  { get_workspace = function() return 'default' end, tabs = function() return {",
+                "    { get_title = function() return 'a' end, active_pane = function() return { get_current_working_dir = function() return { file_path = '/tmp' } end } end },",
+                "  } end },",
+                "} end }",
+                "save_fn(win, {})",
+                f"local f = io.open({_lua_str((self.tmp_path / 'wezterm_session.json').as_posix())}, 'r')",
+                "assert(f, 'session snapshot was not written to the config_dir fallback')",
+                "f:close()",
+                "return real_wz.config_builder()",
+            ]),
+            encoding="utf-8",
+        )
+        res = subprocess.run(
+            [*wz, "--config-file", str(harness), "ls-fonts", "--text", "a"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        errors = [ln for ln in res.stderr.splitlines() if " ERROR " in ln]
+        self.assertEqual(errors, [], f"Lua harness errors:\n{res.stderr}")
 
 
 if __name__ == "__main__":

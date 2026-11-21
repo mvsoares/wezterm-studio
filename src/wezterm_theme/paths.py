@@ -11,7 +11,66 @@ import shutil
 import signal
 import subprocess
 import sys
+import sysconfig
+import tempfile
+import threading
+import time
 from pathlib import Path
+
+_FLATPAK_CACHE_LOCK = threading.Lock()
+_FLATPAK_CACHE: tuple[str, float, bool] | None = None
+_FLATPAK_CACHE_TTL = 60.0
+
+
+def _current_umask() -> int:
+    mask = os.umask(0o022)
+    os.umask(mask)
+    return mask
+
+
+_UMASK = _current_umask()
+
+
+def atomic_write_text(path: Path, text: str, newline: str | None = None) -> None:
+    """Write `text` atomically (temp file + rename) so WezTerm never reloads a half-written file.
+
+    Symlinks (dotfile managers like stow/chezmoi) are followed so the link itself survives,
+    and the existing file mode is preserved. `newline` is passed to `open()`: use "" to
+    write `text` with its line endings untouched. Targets that exist but are not regular
+    files (`/dev/stdout`, FIFOs, `>(...)` process substitution) are written directly.
+    """
+    if path.exists() and not path.is_file():
+        with open(path, "w", encoding="utf-8", newline=newline) as fh:
+            fh.write(text)
+        return
+    target = path.resolve() if path.is_symlink() else path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline=newline) as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        try:
+            if target.exists():
+                shutil.copymode(target, tmp)
+            else:
+                os.chmod(tmp, 0o666 & ~_UMASK)
+        except OSError:
+            pass
+        for attempt in range(5):
+            try:
+                os.replace(tmp, target)
+                break
+            except PermissionError:
+                # Windows refuses to replace a file another process (WezTerm) has open.
+                if os.name != "nt" or attempt == 4:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def init_terminal() -> None:
@@ -153,20 +212,75 @@ def find_wezterm_cmd() -> list[str] | None:
         if cand.is_file():
             return [str(cand)]
 
-    # Linux Flatpak fallback
-    if plat == "linux" and shutil.which("flatpak"):
-        try:
-            res = subprocess.run(
-                ["flatpak", "info", "org.wezfurlong.wezterm"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=4,
-            )
-            if res.returncode == 0:
-                return ["flatpak", "run", "org.wezfurlong.wezterm"]
-        except Exception:
-            pass
+    # Linux Flatpak fallback (cached so repeated status checks don't spawn flatpak)
+    if plat == "linux":
+        fp = shutil.which("flatpak")
+        if fp and _flatpak_has_wezterm(fp):
+            return ["flatpak", "run", "org.wezfurlong.wezterm"]
 
+    return None
+
+
+def _flatpak_has_wezterm(flatpak_bin: str) -> bool:
+    global _FLATPAK_CACHE
+    now = time.monotonic()
+    with _FLATPAK_CACHE_LOCK:
+        if _FLATPAK_CACHE is not None:
+            cached_bin, ts, available = _FLATPAK_CACHE
+            if cached_bin == flatpak_bin and (now - ts) < _FLATPAK_CACHE_TTL:
+                return available
+    available = False
+    try:
+        res = subprocess.run(
+            [flatpak_bin, "info", "org.wezfurlong.wezterm"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=4,
+        )
+        available = res.returncode == 0
+    except Exception:
+        available = False
+    with _FLATPAK_CACHE_LOCK:
+        _FLATPAK_CACHE = (flatpak_bin, now, available)
+    return available
+
+
+def find_studio_cli() -> str | None:
+    """Locate the installed `wezterm-theme` executable for GUI/Command Palette callbacks.
+
+    Paths are made absolute but symlinks are NOT resolved: a venv's `bin/python` links to
+    the system interpreter, and Homebrew/Nix shims point into versioned directories that
+    disappear on upgrade, while the shim path itself stays valid.
+    """
+    direct = shutil.which("wezterm-theme")
+    if direct:
+        return str(Path(direct).absolute())
+    exe_names = ("wezterm-theme.exe", "wezterm-theme") if os.name == "nt" else ("wezterm-theme",)
+    if sys.argv and sys.argv[0]:
+        try:
+            argv_p = Path(sys.argv[0]).expanduser()
+            if argv_p.name.lower() in exe_names and argv_p.is_file():
+                return str(argv_p.absolute())
+        except OSError:
+            pass
+    bin_dirs: list[Path] = []
+    if sys.executable:
+        bin_dirs.append(Path(sys.executable).parent)
+    for scheme in (None, "user"):
+        try:
+            scripts = sysconfig.get_path("scripts", sysconfig.get_preferred_scheme("user")) if scheme else sysconfig.get_path("scripts")
+        except (KeyError, ValueError):
+            continue
+        if scripts:
+            bin_dirs.append(Path(scripts))
+    for bin_dir in bin_dirs:
+        for name in exe_names:
+            cand = bin_dir / name
+            try:
+                if cand.is_file():
+                    return str(cand.absolute())
+            except OSError:
+                continue
     return None
 
 

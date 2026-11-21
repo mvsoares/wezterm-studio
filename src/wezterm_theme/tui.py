@@ -589,7 +589,7 @@ def fonts_menu() -> str:
         elif ans.startswith("/"):
             query = ans[1:].strip()
             page = 0
-        elif low.isdigit():
+        elif low.isdecimal():
             idx = int(low) - 1
             if 0 <= idx < len(fonts):
                 fam = fonts[idx]["family"]
@@ -719,7 +719,7 @@ def color_scheme_menu() -> str:
             status_msg = ""
 
         print(
-            f"\n  {DIM}[1-{len(favorites)}] Favorite | [/q | /dark | /light] Search | [oled] | [blur <0-100>] | [dim <0.4-1.0>] | [grad] | [border] | [status] | [qsel]{RESET}"
+            f"\n  {DIM}[1-{len(favorites)}] Favorite | [/q | /dark | /light] Search | [light <name>|off] | [oled] | [blur <0-100>] | [dim <0.4-1.0>] | [grad] | [border] | [status] | [qsel]{RESET}"
         )
         print(
             f"  {DIM}[agents] AI radar | [ssh] SSH/prod tint | [palette] Cmd palette | [editor <cmd>|env] | [links] | [maxw <N|auto>] | [fancy|retro|auto] | [q] Back{RESET}"
@@ -864,12 +864,14 @@ def color_scheme_menu() -> str:
                 else failure_msg(err)
             )
             continue
-        if ans.isdigit():
+        if ans.isdecimal():
             idx = int(ans) - 1
             if 0 <= idx < len(favorites):
                 chosen = favorites[idx]
                 ok, err = apply_appearance({"color_scheme": chosen})
                 status_msg = f"{GREEN}{BOLD}✔ Color scheme '{chosen}' applied!{RESET}" if ok else failure_msg(err)
+            else:
+                status_msg = f"{RED}Enter a favorite number between 1 and {len(favorites)}.{RESET}"
         elif ans.startswith("/"):
             q = ans[1:].strip().lower()
             only_dark: bool | None = None
@@ -1061,7 +1063,7 @@ def interactive_picker(themes: list[dict[str, Any]] = THEMES, initial_filter: st
             status_msg = f"{CYAN}Filtering category: {filter_query}{RESET}"
         elif low == "len" or low.startswith("len "):
             parts = low.split()
-            if len(parts) == 2 and parts[1].isdigit():
+            if len(parts) == 2 and parts[1].isdecimal():
                 new_len = int(parts[1])
                 if 4 <= new_len <= 60:
                     active_t = get_theme_by_id(cur_id) or themes[0]
@@ -1079,7 +1081,7 @@ def interactive_picker(themes: list[dict[str, Any]] = THEMES, initial_filter: st
             filter_query = ans[1:].strip()
             page = 0
             status_msg = f"{CYAN}Searching for: '{filter_query}'{RESET}"
-        elif low.isdigit():
+        elif low.isdecimal():
             tid = int(low)
             chosen = get_theme_by_id(tid)
             if chosen:

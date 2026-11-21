@@ -10,6 +10,8 @@ import math
 import re
 from typing import Any
 
+from .paths import find_studio_cli
+
 CATEGORIES: list[tuple[str, str, int, int]] = [
     ("c1", "Google & Material", 1, 10),
     ("c2", "Powerline & Geometry", 11, 20),
@@ -1389,7 +1391,7 @@ def find_theme(query: str, min_substr_len: int = 1) -> dict[str, Any] | None:
     """Find a theme by numeric ID ('10', '#10', '01'), slug ('cyberpunk-edgerunners'), or name substring."""
     q = query.strip()
     q_num = q.lstrip("#").strip()
-    if q_num.isdigit():
+    if q_num.isdecimal():
         return get_theme_by_id(int(q_num))
     q_norm = _norm_slug(q)
     if not q_norm:
@@ -1412,9 +1414,9 @@ def filter_themes(themes: list[dict[str, Any]], filter_query: str) -> list[dict[
     q = filter_query.lower().strip()
     q_slug = re.sub(r"[\s_-]+", " ", q)
     num_match = None
-    if q.startswith("#") and q[1:].isdigit():
+    if q.startswith("#") and q[1:].isdecimal():
         num_match = int(q[1:])
-    elif q.isdigit():
+    elif q.isdecimal():
         num_match = int(q)
 
     return [
@@ -1625,6 +1627,17 @@ def _lua_str(val: str) -> str:
     return f"'{escaped}'"
 
 
+def _lua_long_str(text: str) -> str:
+    """Quote `text` as a Lua long string with a bracket level that cannot clash."""
+    level = 0
+    while True:
+        eq = "=" * level
+        close = f"]{eq}]"
+        if (text + close).find(close) == len(text):
+            return f"[{eq}[{text}{close}"
+        level += 1
+
+
 # AI coding CLIs recognised by both the tab radar and the status-bar completion toast.
 AI_AGENTS = ("claude", "gemini", "antigravity", "agy", "codex", "aider", "opencode", "goose", "cline", "amp")
 
@@ -1686,15 +1699,21 @@ def _emit_appearance_lua(
         lines.append(f"  config.color_scheme = {_lua_str(str(scheme))}")
 
     if appearance.get("oled_black"):
-        lines.extend([
-            "  do",
-            "    local _oled_dark = ((wezterm.gui and wezterm.gui.get_appearance and wezterm.gui.get_appearance()) or 'Dark'):find('Dark') ~= nil",
-            "    if _oled_dark then",
-            "      config.colors = config.colors or {}",
-            "      config.colors.background = '#000000'",
-            "    end",
-            "  end",
-        ])
+        if has_light_scheme:
+            lines.extend([
+                "  do",
+                "    local _oled_dark = ((wezterm.gui and wezterm.gui.get_appearance and wezterm.gui.get_appearance()) or 'Dark'):find('Dark') ~= nil",
+                "    if _oled_dark then",
+                "      config.colors = config.colors or {}",
+                "      config.colors.background = '#000000'",
+                "    end",
+                "  end",
+            ])
+        else:
+            lines.extend([
+                "  config.colors = config.colors or {}",
+                "  config.colors.background = '#000000'",
+            ])
 
     cur_col = appearance.get("cursor_color")
     if isinstance(cur_col, str) and re.fullmatch(r"#[0-9a-fA-F]{6}", cur_col.strip()):
@@ -1786,9 +1805,9 @@ def _emit_appearance_lua(
     if fe and fe in ("WebGpu", "OpenGL", "Software"):
         lines.append(f"  config.front_end = {_lua_str(str(fe))}")
     if appearance.get("max_fps") is not None and int(appearance["max_fps"] or 0) > 0:
-        lines.append(f"  config.max_fps = {max(15, min(240, int(appearance['max_fps'])))}")
+        lines.append(f"  config.max_fps = {max(15, min(255, int(appearance['max_fps'])))}")
     if appearance.get("animation_fps") is not None and int(appearance["animation_fps"] or 0) > 0:
-        lines.append(f"  config.animation_fps = {max(1, min(240, int(appearance['animation_fps'])))}")
+        lines.append(f"  config.animation_fps = {max(1, min(255, int(appearance['animation_fps'])))}")
     if appearance.get("enable_wayland") is not None:
         lines.append(f"  config.enable_wayland = {'true' if appearance['enable_wayland'] else 'false'}")
 
@@ -1865,10 +1884,44 @@ def _emit_status_bar_lua(
         "    local cache = wezterm.GLOBAL._wt_git_cache",
         "    local entry = cache[cwd]",
         "    if entry and (now - entry.ts) < 10 then return entry.branch end",
-        "    local ok, success, stdout = pcall(wezterm.run_child_process, {",
-        "      'git', '-C', cwd, 'rev-parse', '--abbrev-ref', 'HEAD',",
-        "    })",
-        "    local branch = (ok and success and stdout) and stdout:gsub('%s+$', '') or ''",
+        "    local branch = ''",
+        "    local scan_dir = cwd:gsub('\\\\', '/')",
+        "    if scan_dir ~= '/' then scan_dir = scan_dir:gsub('/+$', '') end",
+        "    -- Read .git/HEAD directly; fall back to `git` for worktrees/submodules (.git file),",
+        "    -- detached or reftable HEADs, and when the walk gives up before reaching the root.",
+        "    local needs_git_cli = true",
+        "    for _ = 1, 20 do",
+        "      if scan_dir == '' then needs_git_cli = false; break end",
+        "      local base = scan_dir == '/' and '' or scan_dir",
+        "      local hf = io.open(base .. '/.git/HEAD', 'r')",
+        "      if hf then",
+        "        local head = hf:read('*l') or ''",
+        "        hf:close()",
+        "        local ref = head:match('^ref:%s*refs/heads/(.+)$')",
+        "        ref = ref and ref:gsub('%s+$', '') or ''",
+        "        if ref ~= '' and ref ~= '.invalid' then",
+        "          branch = ref",
+        "          needs_git_cli = false",
+        "        end",
+        "        break",
+        "      end",
+        "      local gf = io.open(base .. '/.git', 'r')",
+        "      if gf then",
+        "        local line = gf:read('*l') or ''",
+        "        gf:close()",
+        "        if line:match('^gitdir:') then break end",
+        "      end",
+        "      local parent = scan_dir:match('^(.*)/[^/]+$')",
+        "      if parent == '' then parent = '/' end",
+        "      if not parent or parent == scan_dir then needs_git_cli = false; break end",
+        "      scan_dir = parent",
+        "    end",
+        "    if needs_git_cli then",
+        "      local ok, success, stdout = pcall(wezterm.run_child_process, {",
+        "        'git', '-C', cwd, 'rev-parse', '--abbrev-ref', 'HEAD',",
+        "      })",
+        "      branch = (ok and success and stdout) and stdout:gsub('%s+$', '') or ''",
+        "    end",
         "    local n = 0",
         "    for _ in pairs(cache) do n = n + 1 end",
         "    if n > 64 then cache = {}; wezterm.GLOBAL._wt_git_cache = cache end",
@@ -2090,13 +2143,24 @@ def _emit_editor_hyperlinks_lua(editor_cmd: str | None = None) -> list[str]:
         "  })",
         "",
         "  local function _wt_editor_args(ed, file_path, line_num)",
-        "    local base = (ed:match('([^/\\\\]+)$') or ed):lower()",
-        "    if base:find('^code') or base:find('^codium') or base:find('^cursor') or base == 'subl' then",
-        "      return { ed, '-g', file_path .. ':' .. line_num }",
-        "    elseif base == 'hx' or base == 'helix' or base == 'zed' then",
-        "      return { ed, file_path .. ':' .. line_num }",
+        "    -- EDITOR / editor_cmd may carry arguments ('code --wait', 'emacsclient -t').",
+        "    local ok_s, argv = pcall(wezterm.shell_split, ed)",
+        "    if not ok_s or type(argv) ~= 'table' then",
+        "      argv = {}",
+        "      for tok in ed:gmatch('%S+') do table.insert(argv, tok) end",
         "    end",
-        "    return { ed, '+' .. line_num, file_path }",
+        "    if #argv == 0 then argv = { 'nvim' } end",
+        "    local base = (argv[1]:match('([^/\\\\]+)$') or argv[1]):lower():gsub('%.exe$', ''):gsub('%.cmd$', '')",
+        "    if base:find('^code') or base:find('^codium') or base:find('^cursor') or base == 'subl' then",
+        "      table.insert(argv, '-g')",
+        "      table.insert(argv, file_path .. ':' .. line_num)",
+        "    elseif base == 'hx' or base == 'helix' or base == 'zed' then",
+        "      table.insert(argv, file_path .. ':' .. line_num)",
+        "    else",
+        "      table.insert(argv, '+' .. line_num)",
+        "      table.insert(argv, file_path)",
+        "    end",
+        "    return argv",
         "  end",
         "",
         "  wezterm.on('open-uri', function(window, pane, uri)",
@@ -2108,7 +2172,7 @@ def _emit_editor_hyperlinks_lua(editor_cmd: str | None = None) -> list[str]:
         "    if not resolved:match('^/') and not resolved:match('^%a:[/\\\\]') then",
         "      local ok_c, cwd_uri = pcall(function() return pane:get_current_working_dir() end)",
         "      local cwd = ok_c and cwd_uri and (type(cwd_uri) == 'string' and cwd_uri:gsub('^file://[^/]*', '') or cwd_uri.file_path) or ''",
-        "      cwd = cwd:gsub('/+$', '')",
+        "      cwd = cwd:gsub('^/([A-Za-z]:)', '%1'):gsub('/+$', '')",
         "      if cwd ~= '' then resolved = cwd .. '/' .. resolved end",
         "    end",
         f"    local ed = {ed_expr}",
@@ -2122,6 +2186,8 @@ def _emit_editor_hyperlinks_lua(editor_cmd: str | None = None) -> list[str]:
 def _emit_command_palette_module_fn(
     enable_ws_switcher: bool = True,
     enable_session_mgr: bool = True,
+    session_path: str | None = None,
+    cli_bin: str | None = None,
 ) -> list[str]:
     """Emit M.command_palette_entries(config, wezterm) for Ctrl+Shift+P Studio, Workspaces, Sessions & Zen."""
     choice_rows: list[str] = []
@@ -2241,8 +2307,6 @@ def _emit_command_palette_module_fn(
             "      action = wezterm.action_callback(function(window, _pane)",
             "        local enc = (wezterm.serde and wezterm.serde.json_encode) or wezterm.json_encode",
             "        if not enc or not wezterm.mux or not wezterm.mux.all_windows then return end",
-            "        local base_dir = (wezterm.config_dir and wezterm.config_dir ~= '') and wezterm.config_dir or ((wezterm.home_dir or '') .. '/.config/wezterm')",
-            "        local snap_path = base_dir:gsub('\\\\', '/'):gsub('/+$', '') .. '/wezterm_session.json'",
             "        local workspaces = {}",
             "        local ws_order = {}",
             "        local total_tabs = 0",
@@ -2276,13 +2340,37 @@ def _emit_command_palette_module_fn(
             "          active_workspace = (window.active_workspace and window:active_workspace()) or 'default',",
             "          workspaces = payload_ws,",
             "        }",
-            "        local f = io.open(snap_path, 'w')",
-            "        if f then",
-            "          f:write(enc(payload))",
-            "          f:close()",
-            "          if window.toast_notification then",
-            "            window:toast_notification('WezTerm Studio', string.format('Saved %d tab(s) across %d workspace(s)', total_tabs, #payload_ws), nil, 3500)",
+            "        local encoded = enc(payload)",
+            "        local wrote = false",
+            "        for _, snap_path in ipairs(_wt_session_paths()) do",
+            "          local tmp_path = snap_path .. '.tmp'",
+            "          local tf = io.open(tmp_path, 'w')",
+            "          if tf then",
+            "            tf:write(encoded)",
+            "            tf:close()",
+            "            if os.rename(tmp_path, snap_path) then",
+            "              wrote = true",
+            "            else",
+            "              os.remove(snap_path)",
+            "              if os.rename(tmp_path, snap_path) then",
+            "                wrote = true",
+            "              else",
+            "                os.remove(tmp_path)",
+            "              end",
+            "            end",
             "          end",
+            "          if not wrote then",
+            "            local f = io.open(snap_path, 'w')",
+            "            if f then",
+            "              f:write(encoded)",
+            "              f:close()",
+            "              wrote = true",
+            "            end",
+            "          end",
+            "          if wrote then break end",
+            "        end",
+            "        if wrote and window.toast_notification then",
+            "          window:toast_notification('WezTerm Studio', string.format('Saved %d tab(s) across %d workspace(s)', total_tabs, #payload_ws), nil, 3500)",
             "        end",
             "      end),",
             "    },",
@@ -2292,9 +2380,11 @@ def _emit_command_palette_module_fn(
             "      action = wezterm.action_callback(function(window, pane)",
             "        local dec = (wezterm.serde and wezterm.serde.json_decode) or wezterm.json_parse",
             "        if not dec or not wezterm.mux or not wezterm.mux.spawn_window then return end",
-            "        local base_dir = (wezterm.config_dir and wezterm.config_dir ~= '') and wezterm.config_dir or ((wezterm.home_dir or '') .. '/.config/wezterm')",
-            "        local snap_path = base_dir:gsub('\\\\', '/'):gsub('/+$', '') .. '/wezterm_session.json'",
-            "        local f = io.open(snap_path, 'r')",
+            "        local f = nil",
+            "        for _, snap_path in ipairs(_wt_session_paths()) do",
+            "          f = io.open(snap_path, 'r')",
+            "          if f then break end",
+            "        end",
             "        if not f then",
             "          if window.toast_notification then",
             "            window:toast_notification('WezTerm Studio', 'No saved session snapshot found yet', nil, 3500)",
@@ -2305,40 +2395,79 @@ def _emit_command_palette_module_fn(
             "        f:close()",
             "        local ok_d, data = pcall(dec, raw)",
             "        if not ok_d or type(data) ~= 'table' or type(data.workspaces) ~= 'table' then return end",
-            "        local existing = {}",
-            "        local ok_w, cur_ws = pcall(function() return wezterm.mux.get_workspace_names() end)",
-            "        if ok_w and type(cur_ws) == 'table' then",
-            "          for _, n in ipairs(cur_ws) do existing[n] = true end",
+            "        local function _norm_cwd(u)",
+            "          if not u then return '' end",
+            "          local c = type(u) == 'string' and u:gsub('^file://[^/]*', '') or (u.file_path or '')",
+            "          return c:gsub('^/([A-Za-z]:)', '%1'):gsub('\\\\', '/'):gsub('/+$', '')",
+            "        end",
+            "        local existing_win = {}",
+            "        local existing_cwds = {}",
+            "        if wezterm.mux.all_windows then",
+            "          local ok_aw, wins = pcall(function() return wezterm.mux.all_windows() end)",
+            "          if ok_aw and type(wins) == 'table' then",
+            "            for _, mw in ipairs(wins) do",
+            "              local ws = (mw.get_workspace and mw:get_workspace()) or 'default'",
+            "              existing_win[ws] = existing_win[ws] or mw",
+            "              existing_cwds[ws] = existing_cwds[ws] or {}",
+            "              local tlist = (mw.tabs and mw:tabs()) or {}",
+            "              for _, mtab in ipairs(tlist) do",
+            "                local ap = mtab.active_pane and mtab:active_pane() or nil",
+            "                local c = ''",
+            "                if ap and ap.get_current_working_dir then",
+            "                  local ok_c, u = pcall(function() return ap:get_current_working_dir() end)",
+            "                  if ok_c and u then c = _norm_cwd(u) end",
+            "                end",
+            "                existing_cwds[ws][c] = (existing_cwds[ws][c] or 0) + 1",
+            "              end",
+            "            end",
+            "          end",
             "        end",
             "        local restored_ws = 0",
             "        local restored_tabs = 0",
             "        local first_ws = nil",
+            "        local function _set_title(tab, title)",
+            "          if tab and title and title ~= '' and tab.set_title then",
+            "            pcall(function() tab:set_title(title) end)",
+            "          end",
+            "        end",
             "        for _, ws_obj in ipairs(data.workspaces) do",
             "          local wname = ws_obj.name or 'default'",
             "          local tabs = ws_obj.tabs or {}",
-            "          if #tabs > 0 and not existing[wname] then",
+            "          if #tabs > 0 then",
             "            first_ws = first_ws or wname",
-            "            local first_cwd = (tabs[1].cwd and tabs[1].cwd ~= '') and tabs[1].cwd or nil",
-            "            local ok_sp, t1, _p1, mwin = pcall(wezterm.mux.spawn_window, { workspace = wname, cwd = first_cwd })",
-            "            if ok_sp and mwin then",
-            "              restored_ws = restored_ws + 1",
-            "              restored_tabs = restored_tabs + 1",
-            "              if t1 and tabs[1].title and tabs[1].title ~= '' and t1.set_title then",
-            "                pcall(function() t1:set_title(tabs[1].title) end)",
+            "            local mwin = existing_win[wname]",
+            "            -- Tabs whose cwd is already open in this workspace are not opened twice.",
+            "            local counts = existing_cwds[wname] or {}",
+            "            local added_here = 0",
+            "            local next_idx = 1",
+            "            if not mwin then",
+            "              -- A missing workspace gets a new window, opened with the first tab.",
+            "              local first_cwd = (tabs[1].cwd and tabs[1].cwd ~= '') and tabs[1].cwd or nil",
+            "              local ok_sp, t1, _p1, new_win = pcall(wezterm.mux.spawn_window, { workspace = wname, cwd = first_cwd })",
+            "              if ok_sp and new_win then",
+            "                mwin = new_win",
+            "                added_here = 1",
+            "                _set_title(t1, tabs[1].title)",
             "              end",
-            "              for idx = 2, #tabs do",
+            "              next_idx = 2",
+            "            end",
+            "            if mwin and mwin.spawn_tab then",
+            "              for idx = next_idx, #tabs do",
             "                local tc = (tabs[idx].cwd and tabs[idx].cwd ~= '') and tabs[idx].cwd or nil",
-            "                local ok_t, nt = pcall(function() return mwin:spawn_tab { cwd = tc } end)",
-            "                if ok_t and nt then",
-            "                  restored_tabs = restored_tabs + 1",
-            "                  if tabs[idx].title and tabs[idx].title ~= '' and nt.set_title then",
-            "                    pcall(function() nt:set_title(tabs[idx].title) end)",
+            "                local nc = _norm_cwd(tc or '')",
+            "                if (counts[nc] or 0) > 0 then",
+            "                  counts[nc] = counts[nc] - 1",
+            "                else",
+            "                  local ok_t, nt = pcall(function() return mwin:spawn_tab { cwd = tc } end)",
+            "                  if ok_t and nt then",
+            "                    added_here = added_here + 1",
+            "                    _set_title(nt, tabs[idx].title)",
             "                  end",
             "                end",
             "              end",
             "            end",
-            "          else",
-            "            first_ws = first_ws or wname",
+            "            restored_tabs = restored_tabs + added_here",
+            "            if added_here > 0 then restored_ws = restored_ws + 1 end",
             "          end",
             "        end",
             "        local target_ws = data.active_workspace or first_ws",
@@ -2352,6 +2481,23 @@ def _emit_command_palette_module_fn(
             "    },",
         ]
 
+    session_fn: list[str] = []
+    if enable_session_mgr:
+        session_fn = [
+            "  local function _wt_session_paths()",
+            "    -- The absolute path chosen by Python first; the config_dir one keeps working when",
+            "    -- this module is synced through dotfiles to a machine with another home directory.",
+            "    local out = {}",
+            f"    local abs = {_lua_long_str(session_path or '')}",
+            "    if abs ~= '' then table.insert(out, abs) end",
+            "    local base_dir = (wezterm.config_dir and wezterm.config_dir ~= '') and wezterm.config_dir or ((wezterm.home_dir or '') .. '/.config/wezterm')",
+            "    local alt = base_dir:gsub('\\\\', '/'):gsub('/+$', '') .. '/wezterm_session.json'",
+            "    if alt ~= abs then table.insert(out, alt) end",
+            "    return out",
+            "  end",
+        ]
+
+    resolved_cli = cli_bin if cli_bin is not None else (find_studio_cli() or "")
     return [
         "local _wt_catalog = {",
         *choice_rows,
@@ -2359,6 +2505,15 @@ def _emit_command_palette_module_fn(
         "",
         "function M.command_palette_entries(config, wezterm)",
         "  local act = wezterm.action",
+        *session_fn,
+        "  local function studio_cli()",
+        f"    local cand = {_lua_long_str(resolved_cli)}",
+        "    if cand ~= '' then",
+        "      local f = io.open(cand, 'r')",
+        "      if f then f:close(); return cand end",
+        "    end",
+        "    return 'wezterm-theme'",
+        "  end",
         "  local function run_bg(argv)",
         "    if wezterm.background_child_process then",
         "      pcall(wezterm.background_child_process, argv)",
@@ -2390,9 +2545,9 @@ def _emit_command_palette_module_fn(
         "            title = '✦ WezTerm Studio — Select Tab Bar Theme',",
         "            choices = choices,",
         "            fuzzy = true,",
-        "            fuzzy_description = 'Search 62 themes: ',",
+        f"            fuzzy_description = 'Search {len(THEMES)} themes: ',",
         "            action = wezterm.action_callback(function(_w, _p, id)",
-        "              if id then run_bg { 'wezterm-theme', '-s', tostring(id) } end",
+        "              if id then run_bg { studio_cli(), '-s', tostring(id) } end",
         "            end),",
         "          },",
         "          pane",
@@ -2448,11 +2603,25 @@ def _emit_command_palette_module_fn(
         "      icon = 'md_format_font',",
         "      action = wezterm.action_callback(function(window, _pane)",
         "        local ov = window:get_config_overrides() or {}",
-        "        if ov.harfbuzz_features and #ov.harfbuzz_features > 0 then",
-        "          ov.harfbuzz_features = {}",
-        "        else",
-        "          ov.harfbuzz_features = { 'calt=0', 'clig=0', 'liga=0' }",
+        "        local cur = ov.harfbuzz_features",
+        "        if cur == nil then",
+        "          cur = (config and config.harfbuzz_features) or {}",
         "        end",
+        "        -- Only the ligature features are toggled; others ('zero', 'ss01', ...) are kept.",
+        "        local disabled = false",
+        "        local kept = {}",
+        "        for _, feat in ipairs(type(cur) == 'table' and cur or {}) do",
+        "          local name = tostring(feat):match('^[+-]?(%a+)')",
+        "          if name == 'calt' or name == 'clig' or name == 'liga' then",
+        "            if tostring(feat):match('=0$') or tostring(feat):match('^%-') then disabled = true end",
+        "          else",
+        "            table.insert(kept, feat)",
+        "          end",
+        "        end",
+        "        if not disabled then",
+        "          for _, feat in ipairs({ 'calt=0', 'clig=0', 'liga=0' }) do table.insert(kept, feat) end",
+        "        end",
+        "        ov.harfbuzz_features = kept",
         "        window:set_config_overrides(ov)",
         "      end),",
         "    },",
@@ -2460,7 +2629,7 @@ def _emit_command_palette_module_fn(
         "      brief = 'WezTerm Studio: Launch Browser Web Studio',",
         "      icon = 'md_web',",
         "      action = wezterm.action_callback(function()",
-        "        run_bg { 'wezterm-theme', 'web' }",
+        "        run_bg { studio_cli(), 'web' }",
         "      end),",
         "    },",
         "  }",
@@ -2475,6 +2644,8 @@ def generate_lua_for_theme(
     symbols: dict[str, str] | None = None,
     appearance: dict[str, Any] | None = None,
     watch_files: list[str] | None = None,
+    session_path: str | None = None,
+    cli_bin: str | None = None,
 ) -> str:
     """Produce cross-platform Lua module for WezTerm (`tab_theme.lua` or `wezterm_theme.lua`).
 
@@ -2505,6 +2676,7 @@ def generate_lua_for_theme(
     enable_cmd_palette = True if not appearance or appearance.get("command_palette") is not False else False
     enable_ws_switcher = True if not appearance or appearance.get("workspace_switcher") is not False else False
     enable_session_mgr = True if not appearance or appearance.get("session_manager") is not False else False
+    enable_open_in_editor = True if not appearance or appearance.get("open_in_editor") is not False else False
 
     lua: list[str] = [
         "-- Auto-generated by wezterm-theme (WezTerm Studio)",
@@ -2518,6 +2690,8 @@ def generate_lua_for_theme(
             _emit_command_palette_module_fn(
                 enable_ws_switcher=enable_ws_switcher,
                 enable_session_mgr=enable_session_mgr,
+                session_path=session_path,
+                cli_bin=cli_bin,
             )
             if enable_cmd_palette
             else []
@@ -2527,7 +2701,7 @@ def generate_lua_for_theme(
 
     if watch_files:
         for wf in watch_files:
-            lua.append(f"  pcall(wezterm.add_to_config_reload_watch_list, [==[{wf}]==])")
+            lua.append(f"  pcall(wezterm.add_to_config_reload_watch_list, {_lua_long_str(wf)})")
         lua.append("")
 
     is_loader_only = bool(appearance and appearance.get("_loader_only"))
@@ -2542,8 +2716,8 @@ def generate_lua_for_theme(
                     enable_agent_toast=enable_agent_radar,
                 )
             )
-        if appearance.get("open_in_editor"):
-            lua.extend(_emit_editor_hyperlinks_lua(appearance.get("editor_cmd")))
+    if enable_open_in_editor and not is_loader_only:
+        lua.extend(_emit_editor_hyperlinks_lua(appearance.get("editor_cmd") if appearance else None))
     if enable_cmd_palette and not is_loader_only:
         lua.extend([
             "  wezterm.on('augment-command-palette', function()",
@@ -2734,7 +2908,8 @@ def generate_lua_for_theme(
             f"    local next_bg = '{bg_bar}'",
             "    if tabs and tab.tab_index + 1 < #tabs then",
             "      local next_tab = tabs[tab.tab_index + 2]",
-            "      local next_c = palette[(next_tab.tab_index % #palette) + 1]",
+            "      local _, _, _, _, _, next_ssh = get_title_info(next_tab)",
+            "      local next_c = effective_slot(palette[(next_tab.tab_index % #palette) + 1], next_ssh)",
             "      next_bg = next_c.bg",
             "    end",
             "    local text = is_act and (c.active_sym .. index) or (index .. c.inactive_sym)",
@@ -2839,7 +3014,7 @@ def generate_lua_for_theme(
             "    if ok_ws and type(res_ws) == 'string' and res_ws ~= '' then ws = res_ws end",
             "    local c = effective_slot(palette[workspace_slot(ws)], ssh_lvl)",
             "    if tab.is_active then",
-            "      local ws_short = #ws > 8 and (ws:sub(1, 7) .. '…') or ws",
+            "      local ws_short = wezterm.column_width(ws) > 8 and (wezterm.truncate_right(ws, 7) .. '…') or ws",
             "      return wezterm.format {",
             "        { Background = { Color = c.bg } },",
             "        { Foreground = { Color = c.fg } },",

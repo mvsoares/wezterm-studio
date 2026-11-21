@@ -16,21 +16,20 @@ import copy
 import functools
 import json
 import math
-import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import threading
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
-from .paths import find_wezterm_cmd, get_platform_name, resolve_wezterm_paths
+from .paths import atomic_write_text, find_wezterm_cmd, get_platform_name, resolve_wezterm_paths
 from .themes import (
     THEMES,
+    _lua_long_str,
     generate_lua_for_theme,
     get_theme_by_id,
 )
@@ -113,49 +112,10 @@ class ConfigFileError(ValueError):
     """Raised when a user-owned JSON state file exists but cannot be parsed."""
 
 
-def _current_umask() -> int:
-    mask = os.umask(0o022)
-    os.umask(mask)
-    return mask
-
-
-_UMASK = _current_umask()
-
-
-def _atomic_write_text(path: Path, text: str) -> None:
-    """Write `text` atomically (temp file + rename) so WezTerm never reloads a half-written file.
-
-    Symlinks (dotfile managers like stow/chezmoi) are followed so the link itself survives,
-    and the existing file mode is preserved.
-    """
-    target = path.resolve() if path.is_symlink() else path
-    target.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
-    tmp = Path(tmp_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(text)
-            fh.flush()
-            os.fsync(fh.fileno())
-        try:
-            if target.exists():
-                shutil.copymode(target, tmp)
-            else:
-                os.chmod(tmp, 0o666 & ~_UMASK)
-        except OSError:
-            pass
-        for attempt in range(5):
-            try:
-                os.replace(tmp, target)
-                break
-            except PermissionError:
-                # Windows refuses to replace a file another process (WezTerm) has open.
-                if os.name != "nt" or attempt == 4:
-                    raise
-                time.sleep(0.05 * (attempt + 1))
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
+def _read_text_exact(path: Path) -> str:
+    """Read a text file without translating line endings (CRLF stays CRLF)."""
+    with open(path, encoding="utf-8", newline="") as fh:
+        return fh.read()
 
 
 def _restore_or_remove(path: Path, previous: str | None) -> None:
@@ -163,20 +123,27 @@ def _restore_or_remove(path: Path, previous: str | None) -> None:
     if previous is None:
         path.unlink(missing_ok=True)
     else:
-        _atomic_write_text(path, previous)
+        atomic_write_text(path, previous)
 
 
 def _next_backup_path(bkp_dir: Path, prefix: str, suffix: str) -> Path:
     """Return `<prefix>.<stamp>[-N]<suffix>` for a new backup taken now.
 
-    N is one above every backup already taken in the same second (any label), never a
-    lower number freed by pruning: a reused low number would sort the newest backup as
-    the oldest, so pruning could delete it immediately.
+    The new name always sorts after every existing backup with this prefix: within the
+    same second N is one above the highest number used (never a lower one freed by
+    pruning), and if the wall clock went backwards (DST fall-back, timezone change) the
+    newest existing stamp is reused with the next N. Otherwise the newest backup could
+    sort as the oldest and be pruned right after being created.
     """
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    same_second = re.compile(re.escape(f"{prefix}.{stamp}") + r"(?:-(\d+))?[_.]")
-    seqs = [int(m.group(1) or 1) for f in bkp_dir.glob(f"{prefix}.{stamp}*") if (m := same_second.match(f.name))]
-    seq = max(seqs, default=0) + 1
+    stamped = re.compile(re.escape(prefix) + r"\.(?P<stamp>\d{8}-\d{6})(?:-(?P<seq>\d+))?[_.]")
+    latest = max(
+        (_backup_age_key(m) for f in bkp_dir.glob(f"{prefix}.*") if (m := stamped.match(f.name))),
+        default=None,
+    )
+    seq = 1
+    if latest is not None and latest[0] >= stamp:
+        stamp, seq = latest[0], latest[1] + 1
     return bkp_dir / (f"{prefix}.{stamp}{suffix}" if seq == 1 else f"{prefix}.{stamp}-{seq}{suffix}")
 
 
@@ -216,9 +183,48 @@ _APPEARANCE_INT_RANGES: dict[str, tuple[int, int]] = {
     "scrollback_lines": (0, 100_000_000),
     "tab_max_width": (0, 1000),
     "window_blur": (0, 100),
-    "max_fps": (0, 1000),
-    "animation_fps": (0, 1000),
+    # WezTerm stores both as u8; the UI suggests 15-240 but anything WezTerm accepts is kept.
+    "max_fps": (0, 255),
+    "animation_fps": (0, 255),
     "window_padding": (0, 1000),
+}
+_APPEARANCE_ENUM_VALUES: dict[str, set[str]] = {
+    "front_end": {"WebGpu", "OpenGL", "Software"},
+    "win32_backdrop": {"Auto", "Disable", "Acrylic", "Mica", "Tabbed"},
+    "cursor_style": {
+        "BlinkingBlock",
+        "SteadyBlock",
+        "BlinkingUnderline",
+        "SteadyUnderline",
+        "BlinkingBar",
+        "SteadyBar",
+    },
+    "audible_bell": {"SystemBeep", "Disabled"},
+}
+_VALID_WINDOW_DECORATION_TOKENS = {
+    "NONE",
+    "TITLE",
+    "RESIZE",
+    "INTEGRATED_BUTTONS",
+    "MACOS_FORCE_DISABLE_SHADOW",
+    "MACOS_FORCE_ENABLE_SHADOW",
+    "MACOS_FORCE_SQUARE_CORNERS",
+    "MACOS_USE_BACKGROUND_COLOR_AS_TITLEBAR_COLOR",
+}
+# String settings where an empty value or a reset sentinel means "use WezTerm's default".
+# normalize_appearance_updates() turns those into None, so nothing downstream has to
+# recognize the sentinels again.
+_RESETTABLE_STR_KEYS = {
+    "font_family",
+    "tab_font_family",
+    "color_scheme",
+    "color_scheme_light",
+    "editor_cmd",
+    "cursor_color",
+    "front_end",
+    "win32_backdrop",
+    "cursor_style",
+    "audible_bell",
 }
 _RESET_SENTINELS = {"Default", "Auto", "off", "none"}
 _MAX_STR_LEN = 256
@@ -266,8 +272,9 @@ def _as_safe_str(key: str, value: Any) -> str:
 def normalize_appearance_updates(updates: dict[str, Any]) -> dict[str, Any]:
     """Validate and coerce appearance updates; raise ValueError with a readable message.
 
-    Unknown keys are dropped. `None` and reset sentinels ("Default", "Auto", "auto", 0)
-    are kept as-is so callers can still clear a setting.
+    Unknown keys are dropped. `None` clears a setting; so do an empty string and the reset
+    sentinels ("Default", "Auto", "off", "none") for resettable string settings, which are
+    returned as None. "auto" is kept for the auto/true/false settings, and 0 for numbers.
     """
     if not isinstance(updates, dict):
         raise ValueError("appearance updates must be a JSON object")
@@ -277,17 +284,37 @@ def normalize_appearance_updates(updates: dict[str, Any]) -> dict[str, Any]:
             continue
         if value is None:
             out[key] = None
+        elif key in _RESETTABLE_STR_KEYS and isinstance(value, str) and (not value.strip() or value.strip() in _RESET_SENTINELS):
+            out[key] = None
         elif key == "cursor_color":
             color = _as_safe_str(key, value).strip()
-            if color and color not in _RESET_SENTINELS and not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+            if not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
                 raise ValueError(f"cursor_color must be a #rrggbb hex color, got {value!r}")
             out[key] = color
+        elif key in _APPEARANCE_ENUM_VALUES:
+            raw_s = _as_safe_str(key, value).strip()
+            if raw_s not in _APPEARANCE_ENUM_VALUES[key]:
+                allowed = ", ".join(sorted(_APPEARANCE_ENUM_VALUES[key]))
+                raise ValueError(f"{key} must be one of {allowed}, got {value!r}")
+            out[key] = raw_s
+        elif key == "window_decorations":
+            raw_d = _as_safe_str(key, value).strip()
+            if raw_d in ("", "Default"):
+                out[key] = None
+                continue
+            tokens = [tok.strip() for tok in raw_d.split("|")]
+            if any(tok not in _VALID_WINDOW_DECORATION_TOKENS for tok in tokens):
+                raise ValueError(f"window_decorations contains an invalid flag: {value!r}")
+            out[key] = " | ".join(tokens)
         elif key in _APPEARANCE_STR_KEYS:
             out[key] = _as_safe_str(key, value)
         elif key in _APPEARANCE_BOOL_KEYS:
             out[key] = _as_bool(key, value)
         elif key in _APPEARANCE_AUTO_BOOL_KEYS:
-            out[key] = "auto" if value == "auto" else _as_bool(key, value)
+            if isinstance(value, str) and value.strip().lower() == "auto":
+                out[key] = "auto"
+            else:
+                out[key] = _as_bool(key, value)
         elif key in _APPEARANCE_FLOAT_RANGES:
             lo, hi = _APPEARANCE_FLOAT_RANGES[key]
             num = _as_number(key, value)
@@ -306,6 +333,22 @@ def normalize_appearance_updates(updates: dict[str, Any]) -> dict[str, Any]:
         else:
             out[key] = value
     return out
+
+
+def _sanitize_appearance(saved: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """Normalize appearance settings one key at a time, dropping the invalid ones.
+
+    Used for state read from disk or from a preset, where one hand-edited bad value must
+    not make every later apply fail inside Lua generation. Returns (valid, rejected keys).
+    """
+    valid: dict[str, Any] = {}
+    rejected: list[str] = []
+    for key, value in saved.items():
+        try:
+            valid.update(normalize_appearance_updates({key: value}))
+        except (ValueError, TypeError):
+            rejected.append(key)
+    return valid, rejected
 
 
 def normalize_symbols(symbols: Any) -> Any:
@@ -529,6 +572,9 @@ def detect_user_config_conflicts(paths: dict[str, Path] | None = None) -> list[s
     return conflicts
 
 
+_FRONT_END_VALUE = re.compile(r"""\s*['"](WebGpu|OpenGL|Software)['"]""")
+
+
 def detect_performance_warnings(
     paths: dict[str, Path] | None = None,
     appearance: dict[str, Any] | None = None,
@@ -546,13 +592,16 @@ def detect_performance_warnings(
     if cfg_file.is_file():
         try:
             raw = cfg_file.read_text(encoding="utf-8", errors="ignore")
-            clean = "\n".join(re.sub(r"--.*$", "", ln) for ln in raw.splitlines())
+            masked = _lua_code_mask(raw)
             if not fe:
-                m_fe = re.search(r"""front_end\s*=\s*['"](WebGpu|OpenGL|Software)['"]""", clean)
-                if m_fe:
-                    fe = m_fe.group(1)
+                # Find the assignment in real code (masked), but read the string value from
+                # `raw`: the mask blanks string literals, quotes included.
+                for m_fe in re.finditer(r"\bfront_end\s*=(?!=)", masked):
+                    m_val = _FRONT_END_VALUE.match(raw, m_fe.end())
+                    if m_val:
+                        fe = m_val.group(1)
             if anim_fps is None:
-                m_afps = re.search(r"""animation_fps\s*=\s*(\d+)""", clean)
+                m_afps = re.search(r"\banimation_fps\s*=\s*(\d+)", masked)
                 if m_afps:
                     anim_fps = int(m_afps.group(1))
         except Exception:
@@ -574,10 +623,19 @@ def detect_performance_warnings(
     return warnings
 
 
+def _session_json_path(paths: dict[str, Path]) -> Path:
+    return paths.get("session_json") or (paths["config_dir"] / "wezterm_session.json")
+
+
+def _session_lua_path(paths: dict[str, Path]) -> str:
+    """Absolute snapshot path baked into the generated module (it keeps a portable fallback)."""
+    return _session_json_path(paths).resolve().as_posix()
+
+
 def get_session_snapshot_info(paths: dict[str, Path] | None = None) -> dict[str, Any]:
     """Return metadata for the saved workspace session snapshot (`wezterm_session.json`), if any."""
     paths = paths or resolve_wezterm_paths()
-    snap = paths.get("session_json") or (paths["config_dir"] / "wezterm_session.json")
+    snap = _session_json_path(paths)
     if not snap.is_file():
         return {"exists": False, "path": str(snap), "saved_at": None, "active_workspace": None, "workspaces": [], "total_tabs": 0}
     data = _read_json_safe(snap)
@@ -603,7 +661,7 @@ def get_session_snapshot_info(paths: dict[str, Path] | None = None) -> dict[str,
 def clear_session_snapshot(paths: dict[str, Path] | None = None) -> tuple[bool, str]:
     """Delete the saved workspace session snapshot file."""
     paths = paths or resolve_wezterm_paths()
-    snap = paths.get("session_json") or (paths["config_dir"] / "wezterm_session.json")
+    snap = _session_json_path(paths)
     if not snap.is_file():
         return False, "No saved workspace session snapshot found."
     snap.unlink(missing_ok=True)
@@ -687,17 +745,6 @@ def _find_tab_title_handlers(src: str) -> list[tuple[int, int | None]]:
             j += 1
         spans.append((m.start(), j if depth == 0 else None))
     return spans
-
-
-def _lua_long_str(text: str) -> str:
-    """Quote `text` as a Lua long string with a bracket level that cannot clash."""
-    level = 0
-    while True:
-        eq = "=" * level
-        close = f"]{eq}]"
-        if (text + close).find(close) == len(text):
-            return f"[{eq}[{text}{close}"
-        level += 1
 
 
 def disable_conflicting_tab_handlers(content: str) -> tuple[str, bool]:
@@ -830,6 +877,7 @@ def get_current_state(paths: dict[str, Path] | None = None) -> dict[str, Any]:
         syms = studio.get("symbols")
 
     saved_app = studio.get("appearance") if isinstance(studio.get("appearance"), dict) else {}
+    saved_app, _ = _sanitize_appearance(saved_app)
     appearance = {**DEFAULT_APPEARANCE, **saved_app}
 
     conflicts = detect_user_config_conflicts(paths)
@@ -913,6 +961,32 @@ def validate_config(config_path: Path) -> str | None:
     return None
 
 
+def _error_signature(line: str) -> str:
+    """An ERROR log line without its timestamp and Lua line numbers (which shift on edits)."""
+    return re.sub(r":\d+:", ":N:", re.sub(r"^\S+\s+ERROR\s+", "", line.strip()))
+
+
+def _validate_change(cfg_file: Path, rollback: Callable[[], None], redo: Callable[[], None]) -> str | None:
+    """Validate `cfg_file` after a change; if it fails, roll the change back and return the error.
+
+    Errors the user's own config already produced before the change (an unrelated typo, a
+    deprecated option) are not blamed on it: when every error is still reported after
+    rolling back, the change is re-applied and accepted.
+    """
+    err = validate_config(cfg_file)
+    if not err:
+        return None
+    rollback()
+    before = validate_config(cfg_file)
+    if before:
+        new_sigs = {_error_signature(ln) for ln in err.splitlines() if ln.strip()}
+        old_sigs = {_error_signature(ln) for ln in before.splitlines() if ln.strip()}
+        if new_sigs <= old_sigs:
+            redo()
+            return None
+    return err
+
+
 def validate_theme_lua(lua_code: str) -> str | None:
     """Validate a generated theme Lua module in an isolated temporary directory."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -974,6 +1048,47 @@ def _hook_module_path(paths: dict[str, Path]) -> Path:
     return paths["studio_lua"].resolve()
 
 
+_RETURN_IDENT = re.compile(r"([ \t]*)return[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*;?[ \t\r]*$", re.MULTILINE)
+_RETURN_TABLE = re.compile(r"([ \t]*)return[ \t]*\{")
+_LUA_BLOCK_WORD = re.compile(r"\b(function|if|do|repeat|end|until|return)\b")
+
+
+def _last_top_level_return(masked: str) -> int | None:
+    """Offset of the chunk's last top-level `return` in masked Lua code, or None.
+
+    Block depth follows Lua's openers (`function`, `if`, `do`, `repeat`; `for`/`while`
+    always open with `do`) and closers (`end`, `until`), so a `return` inside a helper
+    function or a branch is never mistaken for the config's final return.
+    """
+    depth = 0
+    last = None
+    for m in _LUA_BLOCK_WORD.finditer(masked):
+        word = m.group(1)
+        if word in ("end", "until"):
+            depth = max(0, depth - 1)
+        elif word == "return":
+            if depth == 0:
+                last = m.start()
+        else:
+            depth += 1
+    return last
+
+
+def _split_eol(raw: str) -> tuple[str, str]:
+    """Return (text with LF line endings, eol) for a file read with `_read_text_exact`.
+
+    Only a file that uses CRLF throughout is converted; LF and mixed files are processed
+    as-is, so the lines wezterm-theme does not touch keep their exact bytes.
+    """
+    if "\r\n" in raw and raw.count("\r\n") == raw.count("\n"):
+        return raw.replace("\r\n", "\n"), "\r\n"
+    return raw, "\n"
+
+
+def _write_user_lua(cfg_file: Path, text: str, eol: str) -> None:
+    atomic_write_text(cfg_file, text.replace("\n", eol) if eol != "\n" else text, newline="")
+
+
 def _validation_note() -> str:
     return "" if validation_available() else f" ⚠ Not validated: {VALIDATION_SKIPPED_MSG}"
 
@@ -1003,6 +1118,12 @@ def init_wezterm_config(
     cfg_file = paths["config_file"]
     # Ensure studio_lua exists first
     if not paths["studio_lua"].is_file():
+        try:
+            # A corrupt wezterm_theme.json (e.g. synced dotfiles with a typo) is reported,
+            # never silently replaced by defaults.
+            saved_state = _read_json_strict(paths["studio_json"])
+        except ConfigFileError as exc:
+            return False, str(exc)
         state = get_current_state(paths)
         theme = get_theme_by_id(state["theme_id"]) or THEMES[9]
         lua_code = generate_lua_for_theme(
@@ -1011,22 +1132,24 @@ def init_wezterm_config(
             symbols=state["symbols"],
             appearance=state["appearance"],
             watch_files=[paths["studio_lua"].as_posix(), paths["studio_json"].as_posix()],
+            session_path=_session_lua_path(paths),
         )
-        _atomic_write_text(paths["studio_lua"], lua_code)
-        _atomic_write_text(
-            paths["studio_json"],
-            json.dumps(
-                {
-                    "theme_id": theme["id"],
-                    "tab_title_len": state["tab_title_len"],
-                    "symbols": state["symbols"],
-                    "appearance": {k: v for k, v in state["appearance"].items() if v is not None},
-                },
-                indent=2,
-                ensure_ascii=False,
+        atomic_write_text(paths["studio_lua"], lua_code)
+        if not saved_state:
+            atomic_write_text(
+                paths["studio_json"],
+                json.dumps(
+                    {
+                        "theme_id": theme["id"],
+                        "tab_title_len": state["tab_title_len"],
+                        "symbols": state["symbols"],
+                        "appearance": {k: v for k, v in state["appearance"].items() if v is not None},
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
+                + "\n",
             )
-            + "\n",
-        )
 
     module_path = _hook_module_path(paths)
     if not cfg_file.is_file():
@@ -1037,14 +1160,21 @@ def init_wezterm_config(
             f"{_build_hook_block('config', module_path)}\n\n"
             "return config\n"
         )
-        _atomic_write_text(cfg_file, fresh)
+        atomic_write_text(cfg_file, fresh)
         err = validate_config(cfg_file)
         if err:
             cfg_file.unlink(missing_ok=True)
             return False, f"Failed to validate newly created wezterm.lua: {err}"
         return True, f"Created {cfg_file} integrated with wezterm-theme!{_validation_note()}"
 
-    original = cfg_file.read_text(encoding="utf-8")
+    raw_original = _read_text_exact(cfg_file)
+    original, eol = _split_eol(raw_original)
+
+    def write(text: str) -> None:
+        _write_user_lua(cfg_file, text, eol)
+
+    def rollback() -> None:
+        atomic_write_text(cfg_file, raw_original, newline="")
 
     # Hook already installed: upgrade an outdated hook block and resolve conflicts.
     if HOOK_START in original:
@@ -1066,55 +1196,59 @@ def init_wezterm_config(
             return True, f"wezterm-theme is already integrated into {cfg_file}"
 
         _backup_wezterm_lua(paths, "conflict_fix" if resolved else "hook_update")
-        _atomic_write_text(cfg_file, updated)
-        err = validate_config(cfg_file)
+        write(updated)
+        err = _validate_change(cfg_file, rollback, lambda: write(updated))
         if err:
-            _atomic_write_text(cfg_file, original)
             return False, f"WezTerm rejected the change in {cfg_file} (rolled back): {err}"
         summary = " and ".join(actions)
         return True, f"{summary[0].upper()}{summary[1:]} in {cfg_file}!{_validation_note()}"
 
-    # Match `return <identifier>` near EOF
     working_text = original
     if disable_conflicts:
         working_text, _ = disable_conflicting_tab_handlers(working_text)
 
-    m_ret = re.search(r"^([ \t]*)return[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:--.*)?$", working_text, re.MULTILINE)
-    if m_ret:
-        # Use the last top-level return identifier in the file
-        matches = list(
-            re.finditer(r"^([ \t]*)return[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*(?:--.*)?$", working_text, re.MULTILINE)
-        )
-        last = matches[-1]
-        cfg_var = last.group(2)
-        hook = _build_hook_block(cfg_var, module_path)
-        updated = working_text[: last.start()] + hook + "\n\n" + working_text[last.start() :]
-    else:
-        # Fallback for `return { ... }` style configs
-        m_tbl = list(re.finditer(r"^([ \t]*)return[ \t]*\{", working_text, re.MULTILINE))
-        if not m_tbl:
-            return (
-                False,
-                f"Could not find 'return config' in {cfg_file}. "
-                f"Add the following block manually right before your return statement:\n"
-                f"{_build_hook_block('config', module_path)}",
-            )
-        last = m_tbl[-1]
+    # Only the chunk's final top-level return is the config (comments and strings are
+    # masked); a `return x` inside a helper function must never receive the hook.
+    masked_working = _lua_code_mask(working_text)
+    ret_at = _last_top_level_return(masked_working)
+    line_start = masked_working.rfind("\n", 0, ret_at) + 1 if ret_at is not None else 0
+    m_ident = _RETURN_IDENT.match(masked_working, line_start) if ret_at is not None else None
+    m_table = _RETURN_TABLE.match(masked_working, line_start) if ret_at is not None else None
+    if m_ident:
+        hook = _build_hook_block(m_ident.group(2), module_path)
+        updated = working_text[: m_ident.start()] + hook + "\n\n" + working_text[m_ident.start() :]
+    elif m_table:
+        # `return { ... }`: bind the table to a local, hook it, then return it.
         hook = _build_hook_block("_wt_config", module_path)
+        depth, j = 1, m_table.end()
+        while j < len(masked_working) and depth > 0:
+            if masked_working[j] == "{":
+                depth += 1
+            elif masked_working[j] == "}":
+                depth -= 1
+            j += 1
+        insert_at = j if depth == 0 else len(working_text)
         updated = (
-            working_text[: last.start()]
-            + f"{last.group(1)}local _wt_config = {{"
-            + working_text[last.end() :]
+            working_text[: m_table.start()]
+            + f"{m_table.group(1)}local _wt_config = {{"
+            + working_text[m_table.end() : insert_at]
             + f"\n\n{hook}\nreturn _wt_config\n"
+            + working_text[insert_at:]
+        )
+    else:
+        return (
+            False,
+            f"Could not find 'return config' in {cfg_file}. "
+            f"Add the following block manually right before your return statement:\n"
+            f"{_build_hook_block('config', module_path)}",
         )
 
     # Backup original wezterm.lua before modifying
     _backup_wezterm_lua(paths, "pre_init")
 
-    _atomic_write_text(cfg_file, updated)
-    err = validate_config(cfg_file)
+    write(updated)
+    err = _validate_change(cfg_file, rollback, lambda: write(updated))
     if err:
-        _atomic_write_text(cfg_file, original)
         return False, f"WezTerm rejected the change in {cfg_file} (automatically rolled back): {err}"
 
     note = _validation_note()
@@ -1142,7 +1276,8 @@ def uninstall_wezterm_config(
     actions: list[str] = []
 
     if cfg_file.is_file() and not is_loader_mode(paths):
-        original = cfg_file.read_text(encoding="utf-8")
+        raw_original = _read_text_exact(cfg_file)
+        original, eol = _split_eol(raw_original)
         cleaned = original
         if HOOK_START in original and HOOK_END in original:
             # `init` inserts the block followed by one blank line; remove both.
@@ -1158,10 +1293,13 @@ def uninstall_wezterm_config(
                 actions.append(f"re-enabled {n_restored} format-tab-title handler(s) disabled by init")
         if cleaned != original:
             _backup_wezterm_lua(paths, "pre_uninstall")
-            _atomic_write_text(cfg_file, cleaned)
-            err = validate_config(cfg_file)
+            _write_user_lua(cfg_file, cleaned, eol)
+            err = _validate_change(
+                cfg_file,
+                lambda: atomic_write_text(cfg_file, raw_original, newline=""),
+                lambda: _write_user_lua(cfg_file, cleaned, eol),
+            )
             if err:
-                _atomic_write_text(cfg_file, original)
                 return False, f"Failed to update {cfg_file} (rolled back): {err}"
 
     if remove_files:
@@ -1213,8 +1351,12 @@ def _sync_loader_settings(
             or "font_fallback" in appearance_updates
         ):
             f = data.setdefault("font", {})
-            if appearance_updates.get("font_family"):
-                f["family"] = str(appearance_updates["font_family"])
+            if "font_family" in appearance_updates:
+                ffam = appearance_updates["font_family"]
+                if not ffam:
+                    f.pop("family", None)
+                else:
+                    f["family"] = str(ffam)
             if appearance_updates.get("font_weight"):
                 f["weight"] = str(appearance_updates["font_weight"])
             if appearance_updates.get("font_size") is not None:
@@ -1228,8 +1370,12 @@ def _sync_loader_settings(
 
         if "tab_font_family" in appearance_updates or "tab_font_weight" in appearance_updates or "tab_font_size" in appearance_updates:
             ff = tabs.setdefault("frame_font", {})
-            if appearance_updates.get("tab_font_family"):
-                ff["family"] = str(appearance_updates["tab_font_family"])
+            if "tab_font_family" in appearance_updates:
+                tfam = appearance_updates["tab_font_family"]
+                if not tfam:
+                    ff.pop("family", None)
+                else:
+                    ff["family"] = str(tfam)
             if appearance_updates.get("tab_font_weight"):
                 ff["weight"] = str(appearance_updates["tab_font_weight"])
             if appearance_updates.get("tab_font_size") is not None:
@@ -1245,13 +1391,13 @@ def _sync_loader_settings(
             c = data.setdefault("colors", {})
             if "color_scheme" in appearance_updates:
                 scheme = appearance_updates["color_scheme"]
-                if not scheme or scheme == "Default":
+                if not scheme:
                     c.pop("scheme", None)
                 else:
                     c["scheme"] = str(scheme)
             if "color_scheme_light" in appearance_updates:
                 scheme_light = appearance_updates["color_scheme_light"]
-                if not scheme_light or scheme_light == "Default":
+                if not scheme_light:
                     c.pop("scheme_light", None)
                 else:
                     c["scheme_light"] = str(scheme_light)
@@ -1259,7 +1405,7 @@ def _sync_loader_settings(
                 c["oled_black"] = bool(appearance_updates["oled_black"])
             if "cursor_color" in appearance_updates:
                 cc = appearance_updates["cursor_color"]
-                if not cc or str(cc) in ("Default", "off", "none"):
+                if not cc:
                     c.pop("cursor_color", None)
                 else:
                     c["cursor_color"] = str(cc).strip().lower()
@@ -1285,7 +1431,7 @@ def _sync_loader_settings(
                     w["blur"] = max(0, min(100, int(bval)))
             if "win32_backdrop" in appearance_updates:
                 wbd = appearance_updates["win32_backdrop"]
-                if not wbd or str(wbd) in ("Auto", "Default"):
+                if not wbd:
                     w.pop("win32_backdrop", None)
                 else:
                     w["win32_backdrop"] = str(wbd)
@@ -1296,8 +1442,11 @@ def _sync_loader_settings(
                 else:
                     p = int(float(pad))
                     w["padding"] = {"left": p, "right": p, "top": p, "bottom": p}
-            if appearance_updates.get("window_decorations"):
-                w["decorations"] = str(appearance_updates["window_decorations"])
+            if "window_decorations" in appearance_updates:
+                if appearance_updates["window_decorations"]:
+                    w["decorations"] = str(appearance_updates["window_decorations"])
+                else:
+                    w.pop("decorations", None)
             if "inactive_pane_brightness" in appearance_updates:
                 br = appearance_updates["inactive_pane_brightness"]
                 if br is None:
@@ -1315,15 +1464,20 @@ def _sync_loader_settings(
 
         if "cursor_style" in appearance_updates or "cursor_blink_rate" in appearance_updates:
             cu = data.setdefault("cursor", {})
-            if appearance_updates.get("cursor_style"):
-                cu["style"] = str(appearance_updates["cursor_style"])
+            if "cursor_style" in appearance_updates:
+                if appearance_updates["cursor_style"]:
+                    cu["style"] = str(appearance_updates["cursor_style"])
+                else:
+                    cu.pop("style", None)
             if appearance_updates.get("cursor_blink_rate") is not None:
                 cu["blink_rate"] = int(appearance_updates["cursor_blink_rate"])
 
         if "audible_bell" in appearance_updates:
             be = data.setdefault("bell", {})
-            if appearance_updates.get("audible_bell"):
+            if appearance_updates["audible_bell"]:
                 be["audible"] = str(appearance_updates["audible_bell"])
+            else:
+                be.pop("audible", None)
 
         if (
             "scrollback_lines" in appearance_updates
@@ -1336,7 +1490,7 @@ def _sync_loader_settings(
                 pf["scrollback_lines"] = int(appearance_updates["scrollback_lines"])
             if "front_end" in appearance_updates:
                 fe_v = appearance_updates["front_end"]
-                if not fe_v or str(fe_v) in ("Auto", "Default"):
+                if not fe_v:
                     pf.pop("front_end", None)
                 else:
                     pf["front_end"] = str(fe_v)
@@ -1402,18 +1556,25 @@ def _sync_loader_settings(
                 hl["quick_select"] = bool(appearance_updates["quick_select"])
             if "editor_cmd" in appearance_updates:
                 ed = appearance_updates["editor_cmd"]
-                if not ed or ed == "Default":
+                if not ed:
                     hl.pop("editor", None)
                 else:
                     hl["editor"] = str(ed)
 
     paths["config_dir"].mkdir(parents=True, exist_ok=True)
-    _atomic_write_text(settings_path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    atomic_write_text(settings_path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 
 @_serialized
-def backup_current_config(label: str | None = None, paths: dict[str, Path] | None = None) -> Path | None:
-    """Create a collision-free timestamped backup of the active Lua module & state."""
+def backup_current_config(
+    label: str | None = None,
+    paths: dict[str, Path] | None = None,
+    protect: Path | None = None,
+) -> Path | None:
+    """Create a collision-free timestamped backup of the active Lua module & state.
+
+    `protect` is a backup that automatic pruning must not delete (the one being restored).
+    """
     paths = paths or resolve_wezterm_paths()
     loader = is_loader_mode(paths)
     active_lua = paths["tab_theme_lua"] if loader else paths["studio_lua"]
@@ -1436,7 +1597,7 @@ def backup_current_config(label: str | None = None, paths: dict[str, Path] | Non
             pass
 
     if not label or clean_label[1:] in _AUTO_BACKUP_LABELS:
-        prune_auto_backups(paths=paths)
+        prune_auto_backups(paths=paths, protect=protect)
     return dest
 
 
@@ -1448,11 +1609,15 @@ def _backup_age_key(match: re.Match[str]) -> tuple[str, int]:
     return match.group("stamp"), int(match.group("seq") or 1)
 
 
-def prune_auto_backups(keep: int = MAX_AUTO_BACKUPS, paths: dict[str, Path] | None = None) -> None:
+def prune_auto_backups(
+    keep: int = MAX_AUTO_BACKUPS,
+    paths: dict[str, Path] | None = None,
+    protect: Path | None = None,
+) -> None:
     """Keep only the newest automatic backups; backups labeled by the user are never pruned.
 
     Unlabeled per-apply backups keep `keep` copies; the `pre_restore` safety copies made
-    before each restore keep MAX_PRE_RESTORE_BACKUPS.
+    before each restore keep MAX_PRE_RESTORE_BACKUPS. `protect` is never deleted.
     """
     paths = paths or resolve_wezterm_paths()
     bkp_dir = paths["backup_dir"]
@@ -1466,6 +1631,8 @@ def prune_auto_backups(keep: int = MAX_AUTO_BACKUPS, paths: dict[str, Path] | No
     for label, limit in (("", keep), ("pre_restore", MAX_PRE_RESTORE_BACKUPS)):
         entries = sorted(groups[label], key=lambda e: e[0], reverse=True)
         for _, f in entries[limit:]:
+            if protect is not None and f == protect:
+                continue
             f.unlink(missing_ok=True)
             f.with_suffix(".json").unlink(missing_ok=True)
 
@@ -1495,17 +1662,22 @@ def get_available_backups(paths: dict[str, Path] | None = None) -> list[dict[str
 
     backups: list[dict[str, Any]] = []
     for f in bkp_dir.glob("tab_theme.lua.*.bak"):
-        m = re.fullmatch(r"tab_theme\.lua\.(\d{8}-\d{6})(?:-\d+)?(?:_(.+))?\.bak", f.name)
+        m = re.fullmatch(
+            r"tab_theme\.lua\.(?P<stamp>\d{8}-\d{6})(?:-(?P<seq>\d+))?(?:_(?P<label>.+))?\.bak",
+            f.name,
+        )
         label = ""
         if m:
-            raw_stamp = m.group(1)
-            label = m.group(2) or ""
+            raw_stamp = m.group("stamp")
+            label = m.group("label") or ""
+            age_key = _backup_age_key(m)
             try:
                 dt = datetime.strptime(raw_stamp, "%Y%m%d-%H%M%S")
                 date_str = dt.strftime("%Y-%m-%d %H:%M:%S")
             except Exception:
                 date_str = raw_stamp
         else:
+            age_key = ("", 0)
             date_str = datetime.fromtimestamp(f.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
 
         theme_info = "Custom Configuration"
@@ -1532,43 +1704,48 @@ def get_available_backups(paths: dict[str, Path] | None = None) -> list[dict[str
             "theme_id": theme_id,
             "content_norm": content_norm,
             "mtime": f.stat().st_mtime,
+            "_age_key": age_key,
         })
 
-    backups.sort(key=lambda b: (b["mtime"], b["filename"]), reverse=True)
+    backups.sort(key=lambda b: (b["_age_key"], b["mtime"], b["filename"]), reverse=True)
+    for b in backups:
+        b.pop("_age_key", None)
     return backups
-
-
-def _config_watches_file(cfg_file: Path) -> bool:
-    if not cfg_file.is_file():
-        return False
-    try:
-        return "add_to_config_reload_watch_list" in cfg_file.read_text(encoding="utf-8", errors="ignore")
-    except Exception:
-        return False
 
 
 def _install_module_transactional(
     target_lua: Path,
     lua_code: str,
     paths: dict[str, Path],
+    prevalidated: bool = False,
 ) -> str | None:
     """Validate `lua_code` standalone and against `config_file`, rolling back on error."""
     lua_code = sanitize_legacy_lua(lua_code)
-    err = validate_theme_lua(lua_code)
-    if err:
-        return err
+    if not prevalidated:
+        err = validate_theme_lua(lua_code)
+        if err:
+            return err
 
     target_lua.parent.mkdir(parents=True, exist_ok=True)
     prev = target_lua.read_text(encoding="utf-8") if target_lua.is_file() else None
-    _atomic_write_text(target_lua, lua_code)
+    atomic_write_text(target_lua, lua_code)
 
     cfg_file = paths["config_file"]
-    err = validate_config(cfg_file) if cfg_file.is_file() else None
+    if not cfg_file.is_file():
+        return None
+    err = _validate_change(
+        cfg_file,
+        lambda: _restore_or_remove(target_lua, prev),
+        lambda: atomic_write_text(target_lua, lua_code),
+    )
     if err:
-        _restore_or_remove(target_lua, prev)
         return err
 
-    if cfg_file.is_file() and (prev is None or not _config_watches_file(cfg_file)):
+    # A loaded module that registered itself with add_to_config_reload_watch_list makes
+    # WezTerm reload on its own. Otherwise (first install, loader-mode tab_theme.lua)
+    # touch wezterm.lua; touching it every time caused extra reloads and churned the
+    # mtime of the user's dotfile.
+    if prev is None or "add_to_config_reload_watch_list" not in prev:
         try:
             cfg_file.touch()
         except OSError:
@@ -1605,10 +1782,42 @@ def apply_theme(
     except ValueError as exc:
         return False, None, str(exc)
     eff_syms = state["symbols"] if symbols is _KEEP else symbols
-
-    bkp_path = backup_current_config(paths=paths)
+    session_path = _session_lua_path(paths)
 
     if loader:
+        cur_app = dict(state["appearance"])
+        if appearance_updates:
+            for k in ("agent_indicators", "ssh_alert", "command_palette", "workspace_switcher", "session_manager"):
+                if k in appearance_updates and appearance_updates[k] is not None:
+                    cur_app[k] = bool(appearance_updates[k])
+            if "use_fancy_tab_bar" in appearance_updates:
+                fv = appearance_updates["use_fancy_tab_bar"]
+                cur_app["use_fancy_tab_bar"] = None if (fv is None or fv == "auto") else bool(fv)
+        loader_app: dict[str, Any] = {
+            "_loader_only": True,
+            "agent_indicators": cur_app.get("agent_indicators"),
+            "ssh_alert": cur_app.get("ssh_alert"),
+            "command_palette": cur_app.get("command_palette"),
+            "workspace_switcher": cur_app.get("workspace_switcher"),
+            "session_manager": cur_app.get("session_manager"),
+        }
+        if isinstance(cur_app.get("use_fancy_tab_bar"), bool):
+            loader_app["use_fancy_tab_bar"] = cur_app["use_fancy_tab_bar"]
+
+        lua_code = sanitize_legacy_lua(
+            generate_lua_for_theme(
+                theme,
+                tab_title_len=eff_len,
+                symbols=eff_syms,
+                appearance=loader_app,
+                session_path=session_path,
+            )
+        )
+        err = validate_theme_lua(lua_code)
+        if err:
+            return False, None, err
+
+        bkp_path = backup_current_config(paths=paths)
         prev_settings = paths["settings_json"].read_text(encoding="utf-8") if paths["settings_json"].is_file() else None
         _sync_loader_settings(
             paths,
@@ -1617,22 +1826,7 @@ def apply_theme(
             symbols=eff_syms,
             appearance_updates=appearance_updates,
         )
-        new_settings = _read_json_safe(paths["settings_json"])
-        merged_after = _deep_merge(_read_json_safe(paths["defaults_json"]), new_settings)
-        merged_tabs = merged_after.get("tabs") if isinstance(merged_after.get("tabs"), dict) else {}
-        user_fancy = (new_settings.get("tabs") or {}).get("fancy") if isinstance(new_settings.get("tabs"), dict) else None
-        loader_app: dict[str, Any] = {
-            "_loader_only": True,
-            "agent_indicators": merged_tabs.get("agent_indicators"),
-            "ssh_alert": merged_tabs.get("ssh_alert"),
-            "command_palette": merged_tabs.get("command_palette"),
-            "workspace_switcher": merged_tabs.get("workspace_switcher"),
-            "session_manager": merged_tabs.get("session_manager"),
-        }
-        if isinstance(user_fancy, bool):
-            loader_app["use_fancy_tab_bar"] = user_fancy
-        lua_code = generate_lua_for_theme(theme, tab_title_len=eff_len, symbols=eff_syms, appearance=loader_app)
-        err = _install_module_transactional(paths["tab_theme_lua"], lua_code, paths)
+        err = _install_module_transactional(paths["tab_theme_lua"], lua_code, paths, prevalidated=True)
         if err is not None:
             _restore_or_remove(paths["settings_json"], prev_settings)
             return False, bkp_path, err
@@ -1641,30 +1835,34 @@ def apply_theme(
     # Standalone mode: if no wezterm.lua exists yet, auto-create it so first-time users work immediately!
     merged_app = dict(state["appearance"])
     if appearance_updates:
+        # Already normalized: reset sentinels of string settings arrive as None.
         for k, v in appearance_updates.items():
-            if k in DEFAULT_APPEARANCE:
-                if k in ("color_scheme", "color_scheme_light", "editor_cmd", "cursor_color", "front_end", "win32_backdrop") and (
-                    not v or str(v) in ("Default", "Auto", "off", "none")
-                ):
-                    merged_app[k] = None
-                elif k in ("use_fancy_tab_bar", "enable_wayland") and v == "auto":
-                    merged_app[k] = None
-                elif k in ("tab_max_width", "window_blur", "max_fps", "animation_fps") and (v is None or int(v or 0) <= 0):
-                    merged_app[k] = None
-                else:
-                    merged_app[k] = v
+            if k in _APPEARANCE_AUTO_BOOL_KEYS and v == "auto":
+                merged_app[k] = None
+            elif k in ("tab_max_width", "window_blur", "max_fps", "animation_fps") and not v:
+                merged_app[k] = None
+            else:
+                merged_app[k] = v
 
     clean_app = {k: v for k, v in merged_app.items() if v is not None}
-    lua_code = generate_lua_for_theme(
-        theme,
-        tab_title_len=eff_len,
-        symbols=eff_syms,
-        appearance=clean_app if clean_app else None,
-        watch_files=[paths["studio_lua"].as_posix(), paths["studio_json"].as_posix()],
+    lua_code = sanitize_legacy_lua(
+        generate_lua_for_theme(
+            theme,
+            tab_title_len=eff_len,
+            symbols=eff_syms,
+            appearance=clean_app if clean_app else None,
+            watch_files=[paths["studio_lua"].as_posix(), paths["studio_json"].as_posix()],
+            session_path=session_path,
+        )
     )
+    err = validate_theme_lua(lua_code)
+    if err:
+        return False, None, err
 
+    bkp_path = backup_current_config(paths=paths)
     prev_studio = paths["studio_json"].read_text(encoding="utf-8") if paths["studio_json"].is_file() else None
-    _atomic_write_text(
+    prev_lua = paths["studio_lua"].read_text(encoding="utf-8") if paths["studio_lua"].is_file() else None
+    atomic_write_text(
         paths["studio_json"],
         json.dumps(
             {
@@ -1679,13 +1877,17 @@ def apply_theme(
         + "\n",
     )
 
-    err = _install_module_transactional(paths["studio_lua"], lua_code, paths)
+    err = _install_module_transactional(paths["studio_lua"], lua_code, paths, prevalidated=True)
     if err is not None:
         _restore_or_remove(paths["studio_json"], prev_studio)
         return False, bkp_path, err
 
     if not paths["config_file"].is_file():
-        init_wezterm_config(paths=paths)
+        init_ok, init_msg = init_wezterm_config(paths=paths)
+        if not init_ok:
+            _restore_or_remove(paths["studio_json"], prev_studio)
+            _restore_or_remove(paths["studio_lua"], prev_lua)
+            return False, bkp_path, init_msg
 
     return True, bkp_path, None
 
@@ -1743,7 +1945,7 @@ def restore_backup(
 
     spec_str = str(target_spec).strip()
     selected = next((b for b in backups if b["filename"] == spec_str), None)
-    if selected is None and spec_str.isdigit():
+    if selected is None and spec_str.isdecimal():
         idx = int(spec_str) - 1
         if 0 <= idx < len(backups):
             selected = backups[idx]
@@ -1772,7 +1974,7 @@ def restore_backup(
                 f"Backup [{idx_display}] was made in {backup_mode} mode and has no theme metadata; "
                 f"it cannot be restored in {current_mode} mode."
             )
-        backup_current_config(label="pre_restore", paths=paths)
+        backup_current_config(label="pre_restore", paths=paths, protect=selected["path"])
         ok, _, err = apply_theme(theme, tab_title_len=tlen, symbols=syms, paths=paths)
         if not ok:
             return False, f"WezTerm rejected this backup; current configuration was kept. {_short_error(err)}"
@@ -1782,21 +1984,24 @@ def restore_backup(
         )
 
     try:
+        # Read everything first: the pre_restore safety backup below may prune old
+        # pre_restore backups, and the one being restored can be among them.
         content = sanitize_legacy_lua(selected["path"].read_text(encoding="utf-8"))
-        backup_current_config(label="pre_restore", paths=paths)
-
         companion_json = selected["path"].with_suffix(".json")
+        companion_text = companion_json.read_text(encoding="utf-8") if companion_json.is_file() else None
+        backup_current_config(label="pre_restore", paths=paths, protect=selected["path"])
+
         prev_json = target_json.read_text(encoding="utf-8") if target_json.is_file() else None
-        if companion_json.is_file():
-            _atomic_write_text(target_json, companion_json.read_text(encoding="utf-8"))
+        if companion_text is not None:
+            atomic_write_text(target_json, companion_text)
 
         err = _install_module_transactional(target_lua, content, paths)
         if err:
-            if companion_json.is_file():
+            if companion_text is not None:
                 _restore_or_remove(target_json, prev_json)
             return False, f"WezTerm rejected this backup; current configuration was kept. {_short_error(err)}"
 
-        if loader and not companion_json.is_file():
+        if loader and companion_text is None:
             tid, tlen, syms, _ = _parse_lua_metadata(target_lua)
             _sync_loader_settings(paths, theme_id=tid, tab_title_len=tlen, symbols=syms)
 
@@ -1821,8 +2026,7 @@ def export_preset(dest_path: Path | None = None, paths: dict[str, Path] | None =
     }
     raw = json.dumps(preset, indent=2, ensure_ascii=False) + "\n"
     if dest_path is not None:
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
-        dest_path.write_text(raw, encoding="utf-8")
+        atomic_write_text(dest_path, raw)
     return raw, dest_path
 
 
@@ -1863,7 +2067,15 @@ def import_preset(preset_data: dict[str, Any] | str | Path, paths: dict[str, Pat
     syms = data.get("symbols")
     if syms is not None and not isinstance(syms, dict):
         syms = None
-    app = data.get("appearance") if isinstance(data.get("appearance"), dict) else {}
+    raw_app = data.get("appearance") if isinstance(data.get("appearance"), dict) else {}
+    # One value this version rejects (e.g. from a newer or hand-edited preset) only skips
+    # that setting instead of losing the whole preset.
+    app, rejected = _sanitize_appearance(raw_app)
+    if not is_loader_mode(paths):
+        # A preset describes the whole look and export_preset omits unset values, so
+        # settings it leaves out go back to their defaults. Loader-mode settings.json is
+        # shared with the user's own loader config, so there only the preset's keys change.
+        app = {**dict.fromkeys(DEFAULT_APPEARANCE), **app}
 
     ok, _, err = apply_theme(
         theme,
@@ -1874,4 +2086,5 @@ def import_preset(preset_data: dict[str, Any] | str | Path, paths: dict[str, Pat
     )
     if not ok:
         return False, f"Preset could not be applied: {err}"
-    return True, f"Preset applied successfully (Theme #{theme['id']:02d} {theme['name']})!"
+    skipped = f" Ignored invalid settings: {', '.join(sorted(rejected))}." if rejected else ""
+    return True, f"Preset applied successfully (Theme #{theme['id']:02d} {theme['name']})!{skipped}"
