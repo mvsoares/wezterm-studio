@@ -92,6 +92,8 @@ wezterm-theme init
 > **Dual-Mode Support:**
 > - **Standalone Mode (default):** Injects a clean, idempotent `dofile(...)` hook into `wezterm.lua` and manages `wezterm_theme.lua` + `wezterm_theme.json` with atomic writes.
 > - **JSON Loader Mode:** If your config directory already uses a modular `defaults.json` + `settings.json` loader, `wezterm-theme` detects it automatically and synchronizes `settings.json` and `tab_theme.lua` while preserving all your custom keybindings and rules.
+>
+> If your `wezterm.lua` already registers a `format-tab-title` handler, `init` comments out just that call (it would override the Studio themes) after saving a backup in `backups/`. `wezterm-theme uninstall` re-enables it; pass `--keep-disabled-handlers` to leave it off.
 
 ### 2. Launch the Browser Web Studio (Live Fonts + Tabs + Colors)
 
@@ -154,7 +156,7 @@ wezterm-theme --agent-radar --ssh-alert --command-palette
 wezterm-theme export my-setup.json
 wezterm-theme import my-setup.json
 
-# Cleanly remove the hook from wezterm.lua
+# Cleanly remove the hook from wezterm.lua (and re-enable handlers that init disabled)
 wezterm-theme uninstall --purge
 ```
 

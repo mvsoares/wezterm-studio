@@ -432,20 +432,49 @@ def _hex_is_dark(hex_color: str) -> bool:
         return True
 
 
+def _wezterm_version() -> str | None:
+    """Return `wezterm --version` output (e.g. 'wezterm 20240203-110809-5046fc22'), or None."""
+    wz = find_wezterm_cmd()
+    if not wz:
+        return None
+    try:
+        res = subprocess.run([*wz, "--version"], capture_output=True, text=True, timeout=10)
+    except Exception:
+        return None
+    return res.stdout.strip() or None
+
+
 def get_color_scheme_palettes(refresh: bool = False) -> list[dict[str, Any]]:
-    """Return WezTerm built-in color schemes with normalized hex swatches and dark/light flag."""
+    """Return WezTerm built-in color schemes with normalized hex swatches and dark/light flag.
+
+    The disk cache is tagged with the WezTerm version, so upgrading WezTerm (which can add
+    or rename built-in schemes) refreshes it automatically.
+    """
     global _SCHEME_PALETTES_CACHE, _SCHEMES_CACHE
     if _SCHEME_PALETTES_CACHE is not None and not refresh:
         return _SCHEME_PALETTES_CACHE
 
     cache_file = get_cache_dir() / "color_scheme_palettes.json"
+    current_version = _wezterm_version()
     if not refresh and cache_file.is_file():
         try:
             cached = json.loads(cache_file.read_text(encoding="utf-8"))
-            if isinstance(cached, list) and len(cached) > 50 and isinstance(cached[0], dict) and "bg" in cached[0]:
-                _SCHEME_PALETTES_CACHE = cached
-                _SCHEMES_CACHE = [item["name"] for item in cached]
-                return cached
+            if isinstance(cached, dict):
+                cached_version, cached_list = cached.get("wezterm_version"), cached.get("palettes")
+            else:
+                # Caches written before version tagging are a bare list.
+                cached_version, cached_list = None, cached
+            usable = (
+                isinstance(cached_list, list)
+                and len(cached_list) > 50
+                and isinstance(cached_list[0], dict)
+                and "bg" in cached_list[0]
+            )
+            # Without a wezterm binary the cache cannot be rebuilt, so keep using it.
+            if usable and (current_version is None or cached_version == current_version):
+                _SCHEME_PALETTES_CACHE = cached_list
+                _SCHEMES_CACHE = [item["name"] for item in cached_list]
+                return cached_list
         except Exception:
             pass
 
@@ -490,7 +519,10 @@ def get_color_scheme_palettes(refresh: bool = False) -> list[dict[str, Any]]:
     if len(palettes) > 50:
         try:
             cache_file.parent.mkdir(parents=True, exist_ok=True)
-            cache_file.write_text(json.dumps(palettes, ensure_ascii=False), encoding="utf-8")
+            cache_file.write_text(
+                json.dumps({"wezterm_version": current_version, "palettes": palettes}, ensure_ascii=False),
+                encoding="utf-8",
+            )
         except OSError:
             pass
 

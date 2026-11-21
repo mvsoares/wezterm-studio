@@ -13,14 +13,20 @@ Supports two operating modes seamlessly:
 from __future__ import annotations
 
 import copy
+import functools
 import json
+import math
+import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from .paths import find_wezterm_cmd, get_platform_name, resolve_wezterm_paths
 from .themes import (
@@ -30,6 +36,10 @@ from .themes import (
 )
 
 MAX_AUTO_BACKUPS = 20
+MAX_PRE_RESTORE_BACKUPS = 10
+MAX_WEZTERM_LUA_BACKUPS = 10
+# Labels wezterm-theme assigns itself; these backups are pruned like unlabeled ones.
+_AUTO_BACKUP_LABELS = {"pre_restore"}
 HOOK_START = "-- >>> wezterm-theme >>>"
 HOOK_END = "-- <<< wezterm-theme <<<"
 
@@ -80,6 +90,231 @@ DEFAULT_APPEARANCE: dict[str, Any] = {
     "session_manager": None,
 }
 
+# ── Concurrency ──────────────────────────────────────────────────────────────
+# The Web Studio serves requests from several threads; every operation that reads
+# state, backs up, writes and validates must run as one unit or concurrent requests
+# can interleave (e.g. JSON from one theme and Lua from another, or a rollback
+# undoing another request's write).
+_STATE_LOCK = threading.RLock()
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+def _serialized(func: _F) -> _F:
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        with _STATE_LOCK:
+            return func(*args, **kwargs)
+
+    return wrapper  # type: ignore[return-value]
+
+
+# ── Safe file I/O ────────────────────────────────────────────────────────────
+class ConfigFileError(ValueError):
+    """Raised when a user-owned JSON state file exists but cannot be parsed."""
+
+
+def _current_umask() -> int:
+    mask = os.umask(0o022)
+    os.umask(mask)
+    return mask
+
+
+_UMASK = _current_umask()
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write `text` atomically (temp file + rename) so WezTerm never reloads a half-written file.
+
+    Symlinks (dotfile managers like stow/chezmoi) are followed so the link itself survives,
+    and the existing file mode is preserved.
+    """
+    target = path.resolve() if path.is_symlink() else path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        try:
+            if target.exists():
+                shutil.copymode(target, tmp)
+            else:
+                os.chmod(tmp, 0o666 & ~_UMASK)
+        except OSError:
+            pass
+        for attempt in range(5):
+            try:
+                os.replace(tmp, target)
+                break
+            except PermissionError:
+                # Windows refuses to replace a file another process (WezTerm) has open.
+                if os.name != "nt" or attempt == 4:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def _restore_or_remove(path: Path, previous: str | None) -> None:
+    """Roll `path` back to `previous` content, or delete it if it did not exist before."""
+    if previous is None:
+        path.unlink(missing_ok=True)
+    else:
+        _atomic_write_text(path, previous)
+
+
+def _unique_backup_path(bkp_dir: Path, base_name: str, suffix: str) -> Path:
+    """Return `<base_name><suffix>` in `bkp_dir`, adding `-2`, `-3`… instead of overwriting."""
+    dest = bkp_dir / f"{base_name}{suffix}"
+    seq = 2
+    while dest.exists():
+        dest = bkp_dir / f"{base_name}-{seq}{suffix}"
+        seq += 1
+    return dest
+
+
+def _backup_wezterm_lua(paths: dict[str, Path], reason: str) -> Path:
+    bkp_dir = paths["backup_dir"]
+    bkp_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    dest = _unique_backup_path(bkp_dir, f"wezterm.lua.{stamp}", f"_{reason}.bak")
+    shutil.copy2(paths["config_file"], dest)
+    _prune_wezterm_lua_backups(bkp_dir)
+    return dest
+
+
+# ── Appearance validation ────────────────────────────────────────────────────
+# Every entry point (CLI, TUI, Web Studio, presets) goes through apply_theme, so
+# values are checked once here instead of failing deep inside Lua generation.
+_APPEARANCE_STR_KEYS = {
+    "font_family", "font_weight", "tab_font_family", "tab_font_weight", "color_scheme",
+    "color_scheme_light", "window_decorations", "cursor_style", "audible_bell", "editor_cmd",
+    "win32_backdrop", "front_end",
+}
+_APPEARANCE_BOOL_KEYS = {
+    "font_ligatures", "font_fallback", "oled_black", "background_gradient", "accent_border",
+    "hide_tab_bar_if_only_one_tab", "tab_bar_at_bottom", "status_bar", "open_in_editor",
+    "agent_indicators", "ssh_alert", "command_palette", "workspace_switcher", "session_manager",
+    "quick_select",
+}
+_APPEARANCE_AUTO_BOOL_KEYS = {"use_fancy_tab_bar", "enable_wayland"}
+_APPEARANCE_FLOAT_RANGES: dict[str, tuple[float, float]] = {
+    "font_size": (1.0, 200.0),
+    "tab_font_size": (1.0, 200.0),
+    "line_height": (0.1, 5.0),
+    "window_opacity": (0.0, 1.0),
+    "inactive_pane_brightness": (0.0, 1.0),
+}
+_APPEARANCE_INT_RANGES: dict[str, tuple[int, int]] = {
+    "cursor_blink_rate": (0, 60_000),
+    "scrollback_lines": (0, 100_000_000),
+    "tab_max_width": (0, 1000),
+    "window_blur": (0, 100),
+    "max_fps": (0, 1000),
+    "animation_fps": (0, 1000),
+    "window_padding": (0, 1000),
+}
+_RESET_SENTINELS = {"Default", "Auto", "off", "none"}
+_MAX_STR_LEN = 256
+
+
+def _as_number(key: str, value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValueError(f"{key} must be a number, got {value!r}")
+    try:
+        num = float(value)
+    except ValueError:
+        raise ValueError(f"{key} must be a number, got {value!r}") from None
+    if not math.isfinite(num):
+        raise ValueError(f"{key} must be a finite number, got {value!r}")
+    return num
+
+
+def _as_int_in_range(key: str, value: Any, lo: int, hi: int) -> int:
+    num = int(_as_number(key, value))
+    if not lo <= num <= hi:
+        raise ValueError(f"{key} must be between {lo} and {hi}, got {value!r}")
+    return num
+
+
+def _as_bool(key: str, value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str) and value.strip().lower() in ("true", "false"):
+        return value.strip().lower() == "true"
+    raise ValueError(f"{key} must be true or false, got {value!r}")
+
+
+def _as_safe_str(key: str, value: Any) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{key} must be a string, got {value!r}")
+    if len(value) > _MAX_STR_LEN:
+        raise ValueError(f"{key} is too long ({len(value)} > {_MAX_STR_LEN} characters)")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
+        raise ValueError(f"{key} must not contain control characters")
+    return value
+
+
+def normalize_appearance_updates(updates: dict[str, Any]) -> dict[str, Any]:
+    """Validate and coerce appearance updates; raise ValueError with a readable message.
+
+    Unknown keys are dropped. `None` and reset sentinels ("Default", "Auto", "auto", 0)
+    are kept as-is so callers can still clear a setting.
+    """
+    if not isinstance(updates, dict):
+        raise ValueError("appearance updates must be a JSON object")
+    out: dict[str, Any] = {}
+    for key, value in updates.items():
+        if key not in DEFAULT_APPEARANCE:
+            continue
+        if value is None:
+            out[key] = None
+        elif key == "cursor_color":
+            color = _as_safe_str(key, value).strip()
+            if color and color not in _RESET_SENTINELS and not re.fullmatch(r"#[0-9a-fA-F]{6}", color):
+                raise ValueError(f"cursor_color must be a #rrggbb hex color, got {value!r}")
+            out[key] = color
+        elif key in _APPEARANCE_STR_KEYS:
+            out[key] = _as_safe_str(key, value)
+        elif key in _APPEARANCE_BOOL_KEYS:
+            out[key] = _as_bool(key, value)
+        elif key in _APPEARANCE_AUTO_BOOL_KEYS:
+            out[key] = "auto" if value == "auto" else _as_bool(key, value)
+        elif key in _APPEARANCE_FLOAT_RANGES:
+            lo, hi = _APPEARANCE_FLOAT_RANGES[key]
+            num = _as_number(key, value)
+            if not lo <= num <= hi:
+                raise ValueError(f"{key} must be between {lo:g} and {hi:g}, got {value!r}")
+            out[key] = num
+        elif key == "window_padding" and isinstance(value, dict):
+            lo, hi = _APPEARANCE_INT_RANGES[key]
+            out[key] = {
+                side: _as_int_in_range(f"window_padding.{side}", value.get(side, 10), lo, hi)
+                for side in ("left", "right", "top", "bottom")
+            }
+        elif key in _APPEARANCE_INT_RANGES:
+            lo, hi = _APPEARANCE_INT_RANGES[key]
+            out[key] = _as_int_in_range(key, value, lo, hi)
+        else:
+            out[key] = value
+    return out
+
+
+def normalize_symbols(symbols: Any) -> Any:
+    """Validate a symbol selection (dict of str -> str), passing through None and _KEEP."""
+    if symbols is _KEEP or symbols is None:
+        return symbols
+    if not isinstance(symbols, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in symbols.items()
+    ):
+        raise ValueError(f"symbols must be an object of string keys and values, got {symbols!r}")
+    return symbols
+
 
 def sanitize_legacy_lua(lua_code: str) -> str:
     """Normalize deprecated config keys found in older backups."""
@@ -97,6 +332,29 @@ def _read_json_safe(path: Path) -> dict[str, Any]:
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
+
+
+def _read_json_strict(path: Path) -> dict[str, Any]:
+    """Read a JSON object; missing/empty files are `{}`, but a corrupt file raises.
+
+    Used before rewriting a state file so a hand-edit typo (trailing comma, comment)
+    never causes the whole file to be silently replaced by a near-empty one.
+    """
+    if not path.is_file():
+        return {}
+    raw = path.read_text(encoding="utf-8").strip()
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ConfigFileError(
+            f"{path} is not valid JSON (line {exc.lineno}, column {exc.colno}: {exc.msg}). "
+            "Fix the file and try again; nothing was changed."
+        ) from None
+    if not isinstance(data, dict):
+        raise ConfigFileError(f"{path} must contain a JSON object; nothing was changed.")
+    return data
 
 
 def _deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
@@ -259,19 +517,8 @@ def detect_user_config_conflicts(paths: dict[str, Path] | None = None) -> list[s
     except Exception:
         return []
 
-    # Strip out the wezterm-theme hook block so we don't flag our own generated hook
-    clean = re.sub(
-        r"\n?" + re.escape(HOOK_START) + r".*?" + re.escape(HOOK_END) + r"\n?",
-        "",
-        content,
-        flags=re.DOTALL,
-    )
-    # Strip single-line Lua comments
-    clean_lines = [re.sub(r"--.*$", "", line) for line in clean.splitlines()]
-    clean_code = "\n".join(clean_lines)
-
     conflicts: list[str] = []
-    if re.search(r"""(?:wezterm\s*\.\s*on\s*\(\s*['"]format-tab-title['"])""", clean_code):
+    if _find_tab_title_handlers(content):
         conflicts.append(
             "format-tab-title listener detected in wezterm.lua. "
             "It overrides WezTerm Studio tab bar themes."
@@ -360,44 +607,179 @@ def clear_session_snapshot(paths: dict[str, Path] | None = None) -> tuple[bool, 
     return True, f"Cleared workspace session snapshot ({snap.name})."
 
 
+_LUA_LONG_BRACKET = re.compile(r"\[(=*)\[")
+_ON_CALL = re.compile(r"\bwezterm\s*\.\s*on\s*\(")
+_TAB_TITLE_EVENT = re.compile(r"""\s*(['"])format-tab-title\1""")
+_DISABLED_HEADER = "-- [disabled by wezterm-theme: conflicts with dynamic tab bar themes]"
+_DISABLED_END = "-- [/disabled by wezterm-theme]"
+_DISABLED_HEADER_LINE = re.compile(r"[ \t]*" + re.escape(_DISABLED_HEADER) + r"[ \t]*")
+_DISABLED_END_LINE = re.compile(r"[ \t]*" + re.escape(_DISABLED_END) + r"[ \t]*")
+_DISABLED_INLINE = re.compile(r"--\[(=*)\[ \[disabled by wezterm-theme\] (.*?) \]\1\]", re.DOTALL)
+# What wezterm-theme <= 1.4.0 commented out: from the call up to the first `end)`.
+_LEGACY_DISABLED_BLOCK = re.compile(r"""[ \t]*wezterm\s*\.\s*on\s*\(\s*['"]format-tab-title['"].*?end\s*\)""", re.DOTALL)
+
+
+def _lua_code_mask(src: str) -> str:
+    """Return `src` with comments and string literals blanked (same length and newlines).
+
+    Lets regexes and parenthesis matching see only real code: an already commented-out
+    handler, or `(`/`)` inside a string, can no longer confuse the scanner.
+    """
+    out = list(src)
+    n = len(src)
+
+    def blank(a: int, b: int) -> None:
+        for k in range(a, b):
+            if out[k] != "\n":
+                out[k] = " "
+
+    def long_bracket_end(open_m: re.Match[str]) -> int:
+        close = "]" + open_m.group(1) + "]"
+        end = src.find(close, open_m.end())
+        return n if end < 0 else end + len(close)
+
+    i = 0
+    while i < n:
+        ch = src[i]
+        if ch == "-" and src.startswith("--", i):
+            m = _LUA_LONG_BRACKET.match(src, i + 2)
+            if m:
+                end = long_bracket_end(m)
+            else:
+                nl = src.find("\n", i)
+                end = n if nl < 0 else nl
+        elif ch in "'\"":
+            j = i + 1
+            while j < n and src[j] != ch and src[j] != "\n":
+                j += 2 if src[j] == "\\" else 1
+            end = min(j + 1, n)
+        elif ch == "[" and (m := _LUA_LONG_BRACKET.match(src, i)):
+            end = long_bracket_end(m)
+        else:
+            i += 1
+            continue
+        blank(i, end)
+        i = end
+    return "".join(out)
+
+
+def _find_tab_title_handlers(src: str) -> list[tuple[int, int | None]]:
+    """Locate active `wezterm.on('format-tab-title', ...)` calls as (start, end) spans.
+
+    The end is found by balancing parentheses in code only, so it works for named
+    handlers (`wezterm.on('format-tab-title', fmt)`) and for handlers containing nested
+    closures. `end` is None when the call is never closed (invalid Lua).
+    """
+    masked = _lua_code_mask(src)
+    spans: list[tuple[int, int | None]] = []
+    for m in _ON_CALL.finditer(masked):
+        if not _TAB_TITLE_EVENT.match(src, m.end()):
+            continue
+        depth, j = 1, m.end()
+        while j < len(masked) and depth:
+            if masked[j] == "(":
+                depth += 1
+            elif masked[j] == ")":
+                depth -= 1
+            j += 1
+        spans.append((m.start(), j if depth == 0 else None))
+    return spans
+
+
+def _lua_long_str(text: str) -> str:
+    """Quote `text` as a Lua long string with a bracket level that cannot clash."""
+    level = 0
+    while True:
+        eq = "=" * level
+        close = f"]{eq}]"
+        if (text + close).find(close) == len(text):
+            return f"[{eq}[{text}{close}"
+        level += 1
+
+
 def disable_conflicting_tab_handlers(content: str) -> tuple[str, bool]:
-    """Comment out conflicting `wezterm.on('format-tab-title', ...)` blocks in user Lua code."""
-    hook_m = re.search(
-        r"(" + re.escape(HOOK_START) + r".*?" + re.escape(HOOK_END) + r")",
-        content,
-        flags=re.DOTALL,
-    )
-    if hook_m:
-        before = content[:hook_m.start()]
-        hook_block = hook_m.group(1)
-        after = content[hook_m.end():]
-    else:
-        before = content
-        hook_block = ""
-        after = ""
+    """Comment out active `wezterm.on('format-tab-title', ...)` calls in user Lua code.
 
-    pattern = re.compile(
-        r"""([ \t]*wezterm\s*\.\s*on\s*\(\s*['"]format-tab-title['"].*?end\s*\))""",
-        re.DOTALL,
-    )
+    Only the exact call is disabled. Calls that occupy whole lines become line comments
+    between a header and an end marker; a call sharing its line with other code becomes an
+    inline block comment. Handlers that are already commented out are ignored, so running
+    this repeatedly is a no-op. `restore_disabled_tab_handlers` reverses it.
+    """
+    spans = [(s, e) for s, e in _find_tab_title_handlers(content) if e is not None]
+    if not spans:
+        return content, False
 
-    changed = False
+    out = content
+    for start, end in reversed(spans):
+        line_start = out.rfind("\n", 0, start) + 1
+        nl = out.find("\n", end)
+        line_end = len(out) if nl < 0 else nl
+        prefix = out[line_start:start]
+        suffix = out[end:line_end]
+        if not prefix.strip() and re.fullmatch(r"\s*;?\s*(?:--(?!\[=*\[).*)?", suffix):
+            block = out[line_start:line_end]
+            commented = [
+                f"{prefix}{_DISABLED_HEADER}",
+                *(f"-- {line}" for line in block.splitlines()),
+                f"{prefix}{_DISABLED_END}",
+            ]
+            out = out[:line_start] + "\n".join(commented) + out[line_end:]
+        else:
+            call = out[start:end]
+            out = out[:start] + f"--{_lua_long_str(f' [disabled by wezterm-theme] {call} ')}" + out[end:]
+    return out, True
 
-    def repl(m: re.Match[str]) -> str:
-        nonlocal changed
-        changed = True
-        block = m.group(1)
-        lines = ["-- [disabled by wezterm-theme: conflicts with dynamic tab bar themes]"]
-        for line in block.splitlines():
-            lines.append(f"-- {line}")
-        return "\n".join(lines)
 
-    new_before = pattern.sub(repl, before)
-    new_after = pattern.sub(repl, after)
+def _uncomment_line(line: str) -> str | None:
+    if line.startswith("-- "):
+        return line[3:]
+    if line.rstrip() == "--":  # a blank line whose trailing space an editor stripped
+        return ""
+    return None
 
-    if hook_m:
-        return new_before + hook_block + new_after, changed
-    return new_before, changed
+
+def restore_disabled_tab_handlers(content: str) -> tuple[str, int]:
+    """Re-enable `format-tab-title` handlers previously disabled by wezterm-theme.
+
+    Handles the current format (header + end marker, or inline block comment) and blocks
+    written by wezterm-theme <= 1.4.0 (header only, block ends at the first `end)`).
+    Anything that cannot be matched exactly is left untouched. Returns (content, count).
+    """
+    content, restored = _DISABLED_INLINE.subn(lambda m: m.group(2), content)
+    lines = content.split("\n")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        if not _DISABLED_HEADER_LINE.fullmatch(lines[i]):
+            out.append(lines[i])
+            i += 1
+            continue
+        body: list[str] = []
+        j = i + 1
+        end_marker = None
+        while j < len(lines):
+            if _DISABLED_END_LINE.fullmatch(lines[j]):
+                end_marker = j
+                break
+            plain = _uncomment_line(lines[j])
+            if plain is None:
+                break
+            body.append(plain)
+            j += 1
+        take = len(body) if end_marker is not None else 0
+        if end_marker is None:
+            for k in range(1, len(body) + 1):
+                if _LEGACY_DISABLED_BLOCK.match("\n".join(body[:k])):
+                    take = k
+                    break
+        if not take:
+            out.append(lines[i])
+            i += 1
+            continue
+        out.extend(body[:take])
+        restored += 1
+        i = (end_marker + 1) if end_marker is not None else (i + 1 + take)
+    return "\n".join(out), restored
 
 
 def get_current_state(paths: dict[str, Path] | None = None) -> dict[str, Any]:
@@ -475,10 +857,34 @@ def detect_current_symbols() -> dict[str, str] | None:
     return get_current_state()["symbols"]
 
 
+VALIDATION_SKIPPED_MSG = (
+    "WezTerm binary not found (set WEZTERM_BIN or add wezterm to PATH): "
+    "configuration changes are written WITHOUT validation or automatic rollback."
+)
+_validation_warning_shown = False
+
+
+def validation_available() -> bool:
+    """Return True if a `wezterm` binary is available to validate configuration changes."""
+    return find_wezterm_cmd() is not None
+
+
+def _warn_validation_skipped() -> None:
+    global _validation_warning_shown
+    if not _validation_warning_shown:
+        _validation_warning_shown = True
+        print(f"wezterm-theme: warning: {VALIDATION_SKIPPED_MSG}", file=sys.stderr)
+
+
 def validate_config(config_path: Path) -> str | None:
-    """Validate a WezTerm Lua configuration file using `wezterm ls-fonts --text a`."""
+    """Validate a WezTerm Lua configuration file using `wezterm ls-fonts --text a`.
+
+    Returns an error string, or None when the config is valid. When no wezterm binary
+    exists the config cannot be checked: a one-time warning is printed and None returned.
+    """
     wz = find_wezterm_cmd()
     if not wz:
+        _warn_validation_skipped()
         return None
     try:
         res = subprocess.run(
@@ -489,11 +895,19 @@ def validate_config(config_path: Path) -> str | None:
             timeout=20,
         )
     except FileNotFoundError:
+        _warn_validation_skipped()
         return None
     except subprocess.TimeoutExpired:
         return "WezTerm timed out while validating the configuration"
+    # WezTerm exits 0 even for broken configs and only logs the error.
     errors = [line for line in res.stderr.splitlines() if " ERROR " in line]
-    return "\n".join(errors) or None
+    if errors:
+        return "\n".join(errors)
+    if res.returncode != 0:
+        tail = [ln.strip() for ln in res.stderr.splitlines() if ln.strip()][-3:]
+        detail = f": {' | '.join(tail)}" if tail else ""
+        return f"wezterm exited with status {res.returncode} while validating the configuration{detail}"
+    return None
 
 
 def validate_theme_lua(lua_code: str) -> str | None:
@@ -505,36 +919,63 @@ def validate_theme_lua(lua_code: str) -> str | None:
         wrapper.write_text(
             "local wezterm = require 'wezterm'\n"
             "local config = wezterm.config_builder and wezterm.config_builder() or {}\n"
-            f"dofile([==[{mod_path.as_posix()}]==]).apply(config, wezterm)\n"
+            f"dofile({_lua_long_str(mod_path.as_posix())}).apply(config, wezterm)\n"
             "return config\n",
             encoding="utf-8",
         )
         return validate_config(wrapper)
 
 
-def _build_hook_block(cfg_var: str = "config") -> str:
-    return (
-        f"{HOOK_START}\n"
-        "do\n"
-        "  local _wt_wz = require 'wezterm'\n"
-        "  local _wt_p = (_wt_wz.config_dir or '') .. '/wezterm_theme.lua'\n"
-        "  local _wt_f = io.open(_wt_p, 'r')\n"
-        "  if not _wt_f and _wt_wz.home_dir then\n"
-        "    _wt_p = _wt_wz.home_dir .. '/.config/wezterm/wezterm_theme.lua'\n"
-        "    _wt_f = io.open(_wt_p, 'r')\n"
-        "  end\n"
-        "  if _wt_f then\n"
-        "    _wt_f:close()\n"
-        "    local _wt_ok, _wt_m = pcall(dofile, _wt_p)\n"
-        "    if _wt_ok and type(_wt_m) == 'table' and type(_wt_m.apply) == 'function' then\n"
-        f"      _wt_m.apply({cfg_var}, _wt_wz)\n"
-        "    end\n"
-        "  end\n"
-        "end\n"
-        f"{HOOK_END}"
-    )
+def _build_hook_block(cfg_var: str = "config", module_path: Path | None = None) -> str:
+    """Build the `wezterm.lua` hook that loads `wezterm_theme.lua`.
+
+    The absolute path resolved by Python comes first, so the hook finds the module even
+    when `$XDG_CONFIG_HOME` or `$WEZTERM_CONFIG_FILE` put it somewhere other than
+    `wezterm.config_dir`; the portable locations remain as fallbacks for shared dotfiles.
+    """
+    candidates = [f"    {_lua_long_str(module_path.as_posix())},"] if module_path is not None else []
+    return "\n".join([
+        HOOK_START,
+        "do",
+        "  local _wt_wz = require 'wezterm'",
+        "  local _wt_candidates = {",
+        *candidates,
+        "    (_wt_wz.config_dir or '') .. '/wezterm_theme.lua',",
+        "    (_wt_wz.home_dir or '') .. '/.config/wezterm/wezterm_theme.lua',",
+        "  }",
+        "  local _wt_p = nil",
+        "  for _, _wt_c in ipairs(_wt_candidates) do",
+        "    local _wt_f = io.open(_wt_c, 'r')",
+        "    if _wt_f then",
+        "      _wt_f:close()",
+        "      _wt_p = _wt_c",
+        "      break",
+        "    end",
+        "  end",
+        "  if _wt_p then",
+        "    local _wt_ok, _wt_m = pcall(dofile, _wt_p)",
+        "    if _wt_ok and type(_wt_m) == 'table' and type(_wt_m.apply) == 'function' then",
+        f"      _wt_m.apply({cfg_var}, _wt_wz)",
+        "    else",
+        "      _wt_wz.log_error('wezterm-theme: failed to load ' .. _wt_p .. ': ' .. tostring(_wt_m))",
+        "    end",
+        "  else",
+        "    _wt_wz.log_warn('wezterm-theme: wezterm_theme.lua not found; run `wezterm-theme init`')",
+        "  end",
+        "end",
+        HOOK_END,
+    ])
 
 
+def _hook_module_path(paths: dict[str, Path]) -> Path:
+    return paths["studio_lua"].resolve()
+
+
+def _validation_note() -> str:
+    return "" if validation_available() else f" ⚠ Not validated: {VALIDATION_SKIPPED_MSG}"
+
+
+@_serialized
 def init_wezterm_config(
     paths: dict[str, Path] | None = None,
     disable_conflicts: bool = True,
@@ -542,7 +983,8 @@ def init_wezterm_config(
     """Integrate `wezterm-theme` non-destructively into the user's `wezterm.lua`.
 
     If `disable_conflicts` is True (default), conflicting `format-tab-title` handlers
-    in `wezterm.lua` are commented out with an automatic timestamped backup.
+    in `wezterm.lua` are commented out with an automatic timestamped backup. Running it
+    again upgrades an outdated hook block in place and is otherwise a no-op.
     """
     paths = paths or resolve_wezterm_paths()
     paths["config_dir"].mkdir(parents=True, exist_ok=True)
@@ -567,8 +1009,9 @@ def init_wezterm_config(
             appearance=state["appearance"],
             watch_files=[paths["studio_lua"].as_posix(), paths["studio_json"].as_posix()],
         )
-        paths["studio_lua"].write_text(lua_code, encoding="utf-8")
-        paths["studio_json"].write_text(
+        _atomic_write_text(paths["studio_lua"], lua_code)
+        _atomic_write_text(
+            paths["studio_json"],
             json.dumps(
                 {
                     "theme_id": theme["id"],
@@ -580,42 +1023,53 @@ def init_wezterm_config(
                 ensure_ascii=False,
             )
             + "\n",
-            encoding="utf-8",
         )
 
+    module_path = _hook_module_path(paths)
     if not cfg_file.is_file():
         cfg_file.parent.mkdir(parents=True, exist_ok=True)
         fresh = (
             "local wezterm = require 'wezterm'\n"
             "local config = wezterm.config_builder and wezterm.config_builder() or {}\n\n"
-            f"{_build_hook_block('config')}\n\n"
+            f"{_build_hook_block('config', module_path)}\n\n"
             "return config\n"
         )
-        cfg_file.write_text(fresh, encoding="utf-8")
+        _atomic_write_text(cfg_file, fresh)
         err = validate_config(cfg_file)
         if err:
             cfg_file.unlink(missing_ok=True)
             return False, f"Failed to validate newly created wezterm.lua: {err}"
-        return True, f"Created {cfg_file} integrated with wezterm-theme!"
+        return True, f"Created {cfg_file} integrated with wezterm-theme!{_validation_note()}"
 
     original = cfg_file.read_text(encoding="utf-8")
 
-    # If hook already installed, check if user has conflicting handlers to resolve
+    # Hook already installed: upgrade an outdated hook block and resolve conflicts.
     if HOOK_START in original:
+        updated = original
+        actions: list[str] = []
+        hook_m = re.search(re.escape(HOOK_START) + r".*?" + re.escape(HOOK_END), original, flags=re.DOTALL)
+        if hook_m:
+            var_m = re.search(r"_wt_m\.apply\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*,", hook_m.group(0))
+            new_hook = _build_hook_block(var_m.group(1) if var_m else "config", module_path)
+            if hook_m.group(0) != new_hook:
+                updated = original[: hook_m.start()] + new_hook + original[hook_m.end() :]
+                actions.append("updated the wezterm-theme hook")
+        resolved = False
         if disable_conflicts:
-            cleaned, changed = disable_conflicting_tab_handlers(original)
-            if changed:
-                bkp_dir = paths["backup_dir"]
-                bkp_dir.mkdir(parents=True, exist_ok=True)
-                stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-                shutil.copy2(cfg_file, bkp_dir / f"wezterm.lua.{stamp}_conflict_fix.bak")
-                cfg_file.write_text(cleaned, encoding="utf-8")
-                err = validate_config(cfg_file)
-                if err:
-                    cfg_file.write_text(original, encoding="utf-8")
-                    return False, f"Failed to resolve conflicts in {cfg_file} (rolled back): {err}"
-                return True, f"Resolved conflicting format-tab-title handlers in {cfg_file}!"
-        return True, f"wezterm-theme is already integrated into {cfg_file}"
+            updated, resolved = disable_conflicting_tab_handlers(updated)
+            if resolved:
+                actions.append("resolved conflicting format-tab-title handlers")
+        if not actions:
+            return True, f"wezterm-theme is already integrated into {cfg_file}"
+
+        _backup_wezterm_lua(paths, "conflict_fix" if resolved else "hook_update")
+        _atomic_write_text(cfg_file, updated)
+        err = validate_config(cfg_file)
+        if err:
+            _atomic_write_text(cfg_file, original)
+            return False, f"WezTerm rejected the change in {cfg_file} (rolled back): {err}"
+        summary = " and ".join(actions)
+        return True, f"{summary[0].upper()}{summary[1:]} in {cfg_file}!{_validation_note()}"
 
     # Match `return <identifier>` near EOF
     working_text = original
@@ -630,7 +1084,7 @@ def init_wezterm_config(
         )
         last = matches[-1]
         cfg_var = last.group(2)
-        hook = _build_hook_block(cfg_var)
+        hook = _build_hook_block(cfg_var, module_path)
         updated = working_text[: last.start()] + hook + "\n\n" + working_text[last.start() :]
     else:
         # Fallback for `return { ... }` style configs
@@ -639,10 +1093,11 @@ def init_wezterm_config(
             return (
                 False,
                 f"Could not find 'return config' in {cfg_file}. "
-                f"Add the following block manually right before your return statement:\n{_build_hook_block('config')}",
+                f"Add the following block manually right before your return statement:\n"
+                f"{_build_hook_block('config', module_path)}",
             )
         last = m_tbl[-1]
-        hook = _build_hook_block("_wt_config")
+        hook = _build_hook_block("_wt_config", module_path)
         updated = (
             working_text[: last.start()]
             + f"{last.group(1)}local _wt_config = {{"
@@ -651,55 +1106,68 @@ def init_wezterm_config(
         )
 
     # Backup original wezterm.lua before modifying
-    bkp_dir = paths["backup_dir"]
-    bkp_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    shutil.copy2(cfg_file, bkp_dir / f"wezterm.lua.{stamp}_pre_init.bak")
+    _backup_wezterm_lua(paths, "pre_init")
 
-    cfg_file.write_text(updated, encoding="utf-8")
+    _atomic_write_text(cfg_file, updated)
     err = validate_config(cfg_file)
     if err:
-        cfg_file.write_text(original, encoding="utf-8")
+        _atomic_write_text(cfg_file, original)
         return False, f"WezTerm rejected the change in {cfg_file} (automatically rolled back): {err}"
 
+    note = _validation_note()
     conflicts = detect_user_config_conflicts(paths)
     if conflicts:
         conflict_msg = " Note: " + "; ".join(conflicts) + " You may want to comment out or remove custom format-tab-title handlers to allow Studio themes to take effect."
-        return True, f"Successfully integrated wezterm-theme into {cfg_file}.{conflict_msg}"
+        return True, f"Successfully integrated wezterm-theme into {cfg_file}.{conflict_msg}{note}"
 
-    return True, f"Successfully integrated wezterm-theme into {cfg_file}"
+    return True, f"Successfully integrated wezterm-theme into {cfg_file}{note}"
 
 
+@_serialized
 def uninstall_wezterm_config(
     remove_files: bool = False,
     paths: dict[str, Path] | None = None,
+    restore_handlers: bool = True,
 ) -> tuple[bool, str]:
-    """Remove the `wezterm-theme` hook block from `wezterm.lua` cleanly."""
+    """Remove the `wezterm-theme` hook block from `wezterm.lua` cleanly.
+
+    By default it also re-enables the `format-tab-title` handlers that `init` disabled,
+    returning `wezterm.lua` to its pre-integration behaviour.
+    """
     paths = paths or resolve_wezterm_paths()
     cfg_file = paths["config_file"]
-    removed_hook = False
+    actions: list[str] = []
 
     if cfg_file.is_file() and not is_loader_mode(paths):
         original = cfg_file.read_text(encoding="utf-8")
+        cleaned = original
         if HOOK_START in original and HOOK_END in original:
+            # `init` inserts the block followed by one blank line; remove both.
             pattern = re.compile(
-                r"\n?" + re.escape(HOOK_START) + r".*?" + re.escape(HOOK_END) + r"\n?",
+                re.escape(HOOK_START) + r".*?" + re.escape(HOOK_END) + r"[ \t]*\n?(?:[ \t]*\n)?",
                 re.DOTALL,
             )
-            cleaned = pattern.sub("\n", original)
-            cfg_file.write_text(cleaned, encoding="utf-8")
+            cleaned = pattern.sub("", cleaned)
+            actions.append("removed the wezterm-theme hook")
+        if restore_handlers:
+            cleaned, n_restored = restore_disabled_tab_handlers(cleaned)
+            if n_restored:
+                actions.append(f"re-enabled {n_restored} format-tab-title handler(s) disabled by init")
+        if cleaned != original:
+            _backup_wezterm_lua(paths, "pre_uninstall")
+            _atomic_write_text(cfg_file, cleaned)
             err = validate_config(cfg_file)
             if err:
-                cfg_file.write_text(original, encoding="utf-8")
-                return False, f"Failed to remove hook block from {cfg_file} (rolled back): {err}"
-            removed_hook = True
+                _atomic_write_text(cfg_file, original)
+                return False, f"Failed to update {cfg_file} (rolled back): {err}"
 
     if remove_files:
         paths["studio_lua"].unlink(missing_ok=True)
         paths["studio_json"].unlink(missing_ok=True)
 
-    if removed_hook:
-        return True, f"Removed wezterm-theme hook from {cfg_file}."
+    if actions:
+        summary = " and ".join(actions)
+        return True, f"{summary[0].upper()}{summary[1:]} in {cfg_file}."
     return True, "No standalone hook found to remove."
 
 
@@ -710,9 +1178,12 @@ def _sync_loader_settings(
     symbols: Any = _KEEP,
     appearance_updates: dict[str, Any] | None = None,
 ) -> None:
-    """Update `settings.json` in Loader mode while preserving all custom user sections."""
+    """Update `settings.json` in Loader mode while preserving all custom user sections.
+
+    Raises ConfigFileError (without touching the file) if `settings.json` is not valid JSON.
+    """
     settings_path = paths["settings_json"]
-    data = _read_json_safe(settings_path)
+    data = _read_json_strict(settings_path)
 
     tabs = data.setdefault("tabs", {})
     if not isinstance(tabs, dict):
@@ -934,9 +1405,10 @@ def _sync_loader_settings(
                     hl["editor"] = str(ed)
 
     paths["config_dir"].mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _atomic_write_text(settings_path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 
+@_serialized
 def backup_current_config(label: str | None = None, paths: dict[str, Path] | None = None) -> Path | None:
     """Create a collision-free timestamped backup of the active Lua module & state."""
     paths = paths or resolve_wezterm_paths()
@@ -966,26 +1438,55 @@ def backup_current_config(label: str | None = None, paths: dict[str, Path] | Non
         except OSError:
             pass
 
-    if not label:
+    if not label or clean_label[1:] in _AUTO_BACKUP_LABELS:
         prune_auto_backups(paths=paths)
     return dest
 
 
+def _backup_age_key(match: re.Match[str]) -> tuple[str, int]:
+    """Sort key from a backup filename's `YYYYmmdd-HHMMSS[-N]` stamp.
+
+    File mtimes are useless here: `shutil.copy2` keeps the mtime of the copied file.
+    """
+    return match.group("stamp"), int(match.group("seq") or 1)
+
+
 def prune_auto_backups(keep: int = MAX_AUTO_BACKUPS, paths: dict[str, Path] | None = None) -> None:
-    """Keep only the newest unlabeled automatic backups; labeled backups are never pruned."""
+    """Keep only the newest automatic backups; backups labeled by the user are never pruned.
+
+    Unlabeled per-apply backups keep `keep` copies; the `pre_restore` safety copies made
+    before each restore keep MAX_PRE_RESTORE_BACKUPS.
+    """
     paths = paths or resolve_wezterm_paths()
     bkp_dir = paths["backup_dir"]
     if not bkp_dir.is_dir():
         return
-    autos = [
-        f
-        for f in bkp_dir.glob("tab_theme.lua.*.bak")
-        if re.fullmatch(r"tab_theme\.lua\.\d{8}-\d{6}(?:-\d+)?\.bak", f.name)
-    ]
-    autos.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-    for f in autos[keep:]:
-        f.unlink(missing_ok=True)
-        f.with_suffix(".json").unlink(missing_ok=True)
+    groups: dict[str, list[tuple[tuple[str, int], Path]]] = {"": [], "pre_restore": []}
+    for f in bkp_dir.glob("tab_theme.lua.*.bak"):
+        m = re.fullmatch(r"tab_theme\.lua\.(?P<stamp>\d{8}-\d{6})(?:-(?P<seq>\d+))?(?:_(?P<label>pre_restore))?\.bak", f.name)
+        if m:
+            groups[m.group("label") or ""].append((_backup_age_key(m), f))
+    for label, limit in (("", keep), ("pre_restore", MAX_PRE_RESTORE_BACKUPS)):
+        entries = sorted(groups[label], key=lambda e: e[0], reverse=True)
+        for _, f in entries[limit:]:
+            f.unlink(missing_ok=True)
+            f.with_suffix(".json").unlink(missing_ok=True)
+
+
+def _prune_wezterm_lua_backups(bkp_dir: Path, keep: int = MAX_WEZTERM_LUA_BACKUPS) -> None:
+    """Keep the newest `keep` wezterm.lua backups, plus the oldest `pre_init` one: the
+    user's original config from before wezterm-theme ever touched it."""
+    entries: list[tuple[tuple[str, int], str, Path]] = []
+    for f in bkp_dir.glob("wezterm.lua.*.bak"):
+        m = re.fullmatch(r"wezterm\.lua\.(?P<stamp>\d{8}-\d{6})(?:-(?P<seq>\d+))?_(?P<reason>[A-Za-z0-9_]+)\.bak", f.name)
+        if m:
+            entries.append((_backup_age_key(m), m.group("reason"), f))
+    entries.sort(key=lambda e: e[0], reverse=True)
+    pre_inits = [f for _, reason, f in entries if reason == "pre_init"]
+    pristine = pre_inits[-1] if pre_inits else None
+    for _, _, f in entries[keep:]:
+        if f != pristine:
+            f.unlink(missing_ok=True)
 
 
 def get_available_backups(paths: dict[str, Path] | None = None) -> list[dict[str, Any]]:
@@ -1062,15 +1563,12 @@ def _install_module_transactional(
 
     target_lua.parent.mkdir(parents=True, exist_ok=True)
     prev = target_lua.read_text(encoding="utf-8") if target_lua.is_file() else None
-    target_lua.write_text(lua_code, encoding="utf-8")
+    _atomic_write_text(target_lua, lua_code)
 
     cfg_file = paths["config_file"]
     err = validate_config(cfg_file) if cfg_file.is_file() else None
     if err:
-        if prev is None:
-            target_lua.unlink(missing_ok=True)
-        else:
-            target_lua.write_text(prev, encoding="utf-8")
+        _restore_or_remove(target_lua, prev)
         return err
 
     if cfg_file.is_file() and (prev is None or not _config_watches_file(cfg_file)):
@@ -1081,6 +1579,7 @@ def _install_module_transactional(
     return None
 
 
+@_serialized
 def apply_theme(
     theme: dict[str, Any],
     tab_title_len: int | None = None,
@@ -1095,7 +1594,19 @@ def apply_theme(
     state = get_current_state(paths)
     loader = state["mode"] == "loader"
 
-    eff_len = int(tab_title_len) if tab_title_len is not None else int(state["tab_title_len"])
+    try:
+        if appearance_updates:
+            appearance_updates = normalize_appearance_updates(appearance_updates)
+        symbols = normalize_symbols(symbols)
+        eff_len = (
+            _as_int_in_range("tab_title_len", tab_title_len, 1, 500)
+            if tab_title_len is not None
+            else int(state["tab_title_len"])
+        )
+        # Refuse to rewrite a state file we cannot parse instead of silently replacing it.
+        _read_json_strict(paths["settings_json"] if loader else paths["studio_json"])
+    except ValueError as exc:
+        return False, None, str(exc)
     eff_syms = state["symbols"] if symbols is _KEEP else symbols
 
     bkp_path = backup_current_config(paths=paths)
@@ -1126,10 +1637,7 @@ def apply_theme(
         lua_code = generate_lua_for_theme(theme, tab_title_len=eff_len, symbols=eff_syms, appearance=loader_app)
         err = _install_module_transactional(paths["tab_theme_lua"], lua_code, paths)
         if err is not None:
-            if prev_settings is None:
-                paths["settings_json"].unlink(missing_ok=True)
-            else:
-                paths["settings_json"].write_text(prev_settings, encoding="utf-8")
+            _restore_or_remove(paths["settings_json"], prev_settings)
             return False, bkp_path, err
         return True, bkp_path, None
 
@@ -1159,7 +1667,8 @@ def apply_theme(
     )
 
     prev_studio = paths["studio_json"].read_text(encoding="utf-8") if paths["studio_json"].is_file() else None
-    paths["studio_json"].write_text(
+    _atomic_write_text(
+        paths["studio_json"],
         json.dumps(
             {
                 "theme_id": theme["id"],
@@ -1171,15 +1680,11 @@ def apply_theme(
             ensure_ascii=False,
         )
         + "\n",
-        encoding="utf-8",
     )
 
     err = _install_module_transactional(paths["studio_lua"], lua_code, paths)
     if err is not None:
-        if prev_studio is None:
-            paths["studio_json"].unlink(missing_ok=True)
-        else:
-            paths["studio_json"].write_text(prev_studio, encoding="utf-8")
+        _restore_or_remove(paths["studio_json"], prev_studio)
         return False, bkp_path, err
 
     if not paths["config_file"].is_file():
@@ -1188,6 +1693,7 @@ def apply_theme(
     return True, bkp_path, None
 
 
+@_serialized
 def apply_appearance(
     updates: dict[str, Any],
     paths: dict[str, Path] | None = None,
@@ -1206,25 +1712,47 @@ def apply_appearance(
     return ok, err
 
 
+def _short_error(err: str | None) -> str:
+    lines = [ln for ln in (err or "").strip().splitlines() if ln.strip()]
+    return lines[-1][:160] if lines else ""
+
+
+def _backup_mode(bkp: Path) -> str | None:
+    """Return the mode a backup was taken in ('standalone' or 'loader'), or None if unknown.
+
+    Decided from the companion JSON: `wezterm_theme.json` has top-level `theme_id` /
+    `appearance`, while a loader `settings.json` keeps tab settings under `tabs`.
+    """
+    data = _read_json_safe(bkp.with_suffix(".json"))
+    if not data:
+        return None
+    return "standalone" if ("theme_id" in data or "appearance" in data) else "loader"
+
+
+@_serialized
 def restore_backup(
     target_spec: str | int = 1,
     paths: dict[str, Path] | None = None,
 ) -> tuple[bool, str]:
-    """Restore a backup by 1-based index, filename, or label substring."""
+    """Restore a backup by exact filename, 1-based index, or filename/label substring.
+
+    A backup taken in the other mode (standalone vs. loader) is not copied over the
+    current state files; only its tab theme, width and symbols are re-applied.
+    """
     paths = paths or resolve_wezterm_paths()
     backups = get_available_backups(paths=paths)
     if not backups:
         return False, f"No backups found in {paths['backup_dir']}"
 
-    selected = None
     spec_str = str(target_spec).strip()
-    if spec_str.isdigit():
+    selected = next((b for b in backups if b["filename"] == spec_str), None)
+    if selected is None and spec_str.isdigit():
         idx = int(spec_str) - 1
         if 0 <= idx < len(backups):
             selected = backups[idx]
         else:
             return False, f"Invalid backup index: {spec_str}. Choose between 1 and {len(backups)}."
-    else:
+    elif selected is None:
         for b in backups:
             if spec_str in b["filename"] or (b["label"] and spec_str.lower() in b["label"].lower()):
                 selected = b
@@ -1235,6 +1763,26 @@ def restore_backup(
     loader = is_loader_mode(paths)
     target_lua = paths["tab_theme_lua"] if loader else paths["studio_lua"]
     target_json = paths["settings_json"] if loader else paths["studio_json"]
+    idx_display = backups.index(selected) + 1
+    current_mode = "loader" if loader else "standalone"
+    backup_mode = _backup_mode(selected["path"])
+
+    if backup_mode is not None and backup_mode != current_mode:
+        tid, tlen, syms, _ = _parse_lua_metadata(selected["path"])
+        theme = get_theme_by_id(tid) if tid is not None else None
+        if theme is None:
+            return False, (
+                f"Backup [{idx_display}] was made in {backup_mode} mode and has no theme metadata; "
+                f"it cannot be restored in {current_mode} mode."
+            )
+        backup_current_config(label="pre_restore", paths=paths)
+        ok, _, err = apply_theme(theme, tab_title_len=tlen, symbols=syms, paths=paths)
+        if not ok:
+            return False, f"WezTerm rejected this backup; current configuration was kept. {_short_error(err)}"
+        return True, (
+            f"Backup [{idx_display}] ({selected['theme_info']}) was made in {backup_mode} mode: restored its "
+            f"tab theme, width and symbols and kept your current {current_mode} settings."
+        )
 
     try:
         content = sanitize_legacy_lua(selected["path"].read_text(encoding="utf-8"))
@@ -1243,23 +1791,18 @@ def restore_backup(
         companion_json = selected["path"].with_suffix(".json")
         prev_json = target_json.read_text(encoding="utf-8") if target_json.is_file() else None
         if companion_json.is_file():
-            shutil.copy2(companion_json, target_json)
+            _atomic_write_text(target_json, companion_json.read_text(encoding="utf-8"))
 
         err = _install_module_transactional(target_lua, content, paths)
         if err:
-            if prev_json is not None:
-                target_json.write_text(prev_json, encoding="utf-8")
-            return (
-                False,
-                f"WezTerm rejected this backup; current configuration was kept. "
-                f"{err.strip().splitlines()[-1][:160]}",
-            )
+            if companion_json.is_file():
+                _restore_or_remove(target_json, prev_json)
+            return False, f"WezTerm rejected this backup; current configuration was kept. {_short_error(err)}"
 
         if loader and not companion_json.is_file():
             tid, tlen, syms, _ = _parse_lua_metadata(target_lua)
             _sync_loader_settings(paths, theme_id=tid, tab_title_len=tlen, symbols=syms)
 
-        idx_display = backups.index(selected) + 1
         return (
             True,
             f"Backup [{idx_display}] ({selected['theme_info']} - {selected['date_str']}) restored successfully!",
@@ -1287,31 +1830,39 @@ def export_preset(dest_path: Path | None = None, paths: dict[str, Path] | None =
 
 
 def import_preset(preset_data: dict[str, Any] | str | Path, paths: dict[str, Path] | None = None) -> tuple[bool, str]:
-    """Import and apply a preset JSON dictionary, JSON string, or file path."""
+    """Import and apply a preset JSON dictionary, JSON string, or file path.
+
+    A string is parsed as JSON when it looks like a JSON object and only otherwise
+    treated as a file path (probing a long JSON string as a path raises
+    `ENAMETOOLONG` on Python <= 3.12).
+    """
     paths = paths or resolve_wezterm_paths()
     try:
         if isinstance(preset_data, Path):
             data = json.loads(preset_data.read_text(encoding="utf-8"))
         elif isinstance(preset_data, str):
-            p = Path(preset_data).expanduser()
-            if p.is_file():
-                data = json.loads(p.read_text(encoding="utf-8"))
-            else:
+            if preset_data.lstrip().startswith("{"):
                 data = json.loads(preset_data)
+            else:
+                data = json.loads(Path(preset_data).expanduser().read_text(encoding="utf-8"))
         elif isinstance(preset_data, dict):
             data = preset_data
         else:
             return False, "Invalid preset format."
     except Exception as exc:
         return False, f"Failed to parse preset JSON: {exc}"
+    if not isinstance(data, dict):
+        return False, "Invalid preset format: expected a JSON object."
 
-    tid = int(data.get("theme_id", 10))
+    try:
+        tid = _as_int_in_range("theme_id", data.get("theme_id", 10), 1, 10_000)
+        tlen = max(4, min(60, int(_as_number("tab_title_len", data.get("tab_title_len", 15)))))
+    except ValueError as exc:
+        return False, f"Invalid preset: {exc}"
     theme = get_theme_by_id(tid)
     if not theme:
         return False, f"Theme #{tid} does not exist in catalog (1–{len(THEMES)})."
 
-    tlen = int(data.get("tab_title_len", 15))
-    tlen = max(4, min(60, tlen))
     syms = data.get("symbols")
     if syms is not None and not isinstance(syms, dict):
         syms = None
@@ -1325,5 +1876,5 @@ def import_preset(preset_data: dict[str, Any] | str | Path, paths: dict[str, Pat
         paths=paths,
     )
     if not ok:
-        return False, f"WezTerm rejected the preset: {err}"
+        return False, f"Preset could not be applied: {err}"
     return True, f"Preset applied successfully (Theme #{theme['id']:02d} {theme['name']})!"

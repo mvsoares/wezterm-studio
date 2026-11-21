@@ -12,9 +12,11 @@ import os
 import sys
 import tempfile
 import threading
+import time
 import unittest
+import urllib.error
 import urllib.request
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -23,16 +25,24 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from wezterm_theme.cli import main as cli_main
+import wezterm_theme.fonts as fonts_mod
 from wezterm_theme.core import (
+    MAX_PRE_RESTORE_BACKUPS,
+    MAX_WEZTERM_LUA_BACKUPS,
+    _atomic_write_text,
+    _backup_wezterm_lua,
+    _find_tab_title_handlers,
     apply_appearance,
     apply_theme,
     backup_current_config,
+    disable_conflicting_tab_handlers,
     export_preset,
     get_available_backups,
     get_current_state,
     import_preset,
     init_wezterm_config,
     restore_backup,
+    restore_disabled_tab_handlers,
     uninstall_wezterm_config,
     validate_theme_lua,
 )
@@ -40,10 +50,12 @@ from wezterm_theme.fonts import get_color_scheme_palettes
 from wezterm_theme.paths import find_wezterm_cmd, get_cache_dir, get_platform_name, resolve_wezterm_paths
 from wezterm_theme.server import create_server
 from wezterm_theme.themes import (
+    AI_AGENTS,
     MIN_TAB_CONTRAST,
     SYMBOL_GROUPS,
     THEMES,
     _hover_pair,
+    _lua_str,
     compose_symbols,
     contrast_ratio,
     find_theme,
@@ -604,9 +616,11 @@ class StudioHTTPServerAndCLITests(unittest.TestCase):
         thread = threading.Thread(target=httpd.serve_forever, daemon=True)
         thread.start()
         base = f"http://127.0.0.1:{actual_port}"
+        json_headers = {"Content-Type": "application/json", "X-Studio-Token": httpd.studio_token}
         try:
             html = urllib.request.urlopen(f"{base}/").read().decode("utf-8")
             self.assertIn("WezTerm Studio", html)
+            self.assertIn(f'<meta name="studio-token" content="{httpd.studio_token}">', html)
             import re
             html_ids = set(re.findall(r'id="([^"]+)"', html))
             js_ids = set(re.findall(r'getElementById\("([^"]+)"\)', html))
@@ -627,7 +641,7 @@ class StudioHTTPServerAndCLITests(unittest.TestCase):
             req = urllib.request.Request(
                 f"{base}/api/apply-tab-theme",
                 data=json.dumps({"theme_id": 61, "tab_title_len": 16}).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
+                headers=json_headers,
                 method="POST",
             )
             resp = json.loads(urllib.request.urlopen(req).read().decode("utf-8"))
@@ -644,7 +658,7 @@ class StudioHTTPServerAndCLITests(unittest.TestCase):
                         "accent_border": True,
                     }
                 }).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
+                headers=json_headers,
                 method="POST",
             )
             resp_app = json.loads(urllib.request.urlopen(req_app).read().decode("utf-8"))
@@ -793,6 +807,483 @@ class StudioHTTPServerAndCLITests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(detect_user_config_conflicts(paths), [])
         self.assertIn("[disabled by wezterm-theme", cfg.read_text(encoding="utf-8"))
+
+
+class ConflictHandlerScannerTests(unittest.TestCase):
+    """`format-tab-title` disabling must touch only the conflicting call, exactly once."""
+
+    def test_named_handler_only_disables_that_call(self) -> None:
+        src = (
+            "local wezterm = require 'wezterm'\n"
+            "local config = wezterm.config_builder()\n"
+            "local function fmt(tab) return tab.active_pane.title end\n"
+            "wezterm.on('format-tab-title', fmt)\n"
+            "config.font_size = 14\n"
+            "wezterm.on('update-status', function(window)\n"
+            "  window:set_right_status('hi')\n"
+            "end)\n"
+            "return config\n"
+        )
+        out, changed = disable_conflicting_tab_handlers(src)
+        self.assertTrue(changed)
+        self.assertIn("-- wezterm.on('format-tab-title', fmt)\n", out)
+        self.assertIn("\nconfig.font_size = 14\n", out)
+        self.assertIn("\nwezterm.on('update-status', function(window)\n  window:set_right_status('hi')\nend)\n", out)
+
+    def test_handler_with_nested_closure_is_disabled_completely(self) -> None:
+        src = (
+            "wezterm.on('format-tab-title', function(tab)\n"
+            "  local ok, t = pcall(function() return tab.active_pane.title end)\n"
+            "  return t .. ')'\n"
+            "end)\n"
+            "return config\n"
+        )
+        out, changed = disable_conflicting_tab_handlers(src)
+        self.assertTrue(changed)
+        code_lines = [ln for ln in out.splitlines() if ln.strip() and not ln.lstrip().startswith("--")]
+        self.assertEqual(code_lines, ["return config"])
+
+    def test_disabling_is_idempotent(self) -> None:
+        src = "wezterm.on('format-tab-title', function(tab)\n  return tab.active_pane.title\nend)\nreturn config\n"
+        once, changed_once = disable_conflicting_tab_handlers(src)
+        twice, changed_twice = disable_conflicting_tab_handlers(once)
+        self.assertTrue(changed_once)
+        self.assertFalse(changed_twice)
+        self.assertEqual(once, twice)
+        self.assertEqual(once.count("[disabled by wezterm-theme"), 1)
+
+    def test_inline_call_and_string_literals(self) -> None:
+        src = (
+            "local x = 1; wezterm.on('format-tab-title', fmt) local y = ')'\n"
+            "local s = \"wezterm.on('format-tab-title', f)\"\n"
+        )
+        out, changed = disable_conflicting_tab_handlers(src)
+        self.assertTrue(changed)
+        self.assertTrue(out.startswith(
+            "local x = 1; --[[ [disabled by wezterm-theme] wezterm.on('format-tab-title', fmt) ]] local y = ')'\n"
+        ))
+        self.assertIn("local s = \"wezterm.on('format-tab-title', f)\"\n", out)
+
+    def test_block_comments_are_not_conflicts(self) -> None:
+        src = "--[[\nwezterm.on('format-tab-title', function() end)\n]]\nreturn config\n"
+        self.assertEqual(_find_tab_title_handlers(src), [])
+
+    def test_lua_str_escapes_control_characters(self) -> None:
+        self.assertEqual(_lua_str("a\nb'c\\"), "'a\\010b\\'c\\\\'")
+
+    def test_restore_reverses_disable_exactly(self) -> None:
+        sources = [
+            "local function fmt(tab) return 'x' end\nwezterm.on('format-tab-title', fmt)\nconfig.font_size = 14\n",
+            "if true then\n  wezterm.on('format-tab-title', function(tab)\n    return pcall(function() end)\n  end)\nend\n",
+            "local x = 1; wezterm.on('format-tab-title', fmt) local y = ')'\n",
+        ]
+        for src in sources:
+            disabled, changed = disable_conflicting_tab_handlers(src)
+            self.assertTrue(changed, src)
+            restored, count = restore_disabled_tab_handlers(disabled)
+            self.assertEqual(count, 1, src)
+            self.assertEqual(restored, src)
+
+    def test_restore_handles_blocks_from_older_versions(self) -> None:
+        # Exactly what wezterm-theme <= 1.4.0 wrote for a named handler (it over-captured
+        # everything up to the next `end)`); restoring must re-enable all of it.
+        legacy = (
+            "local function fmt(tab) return tab.active_pane.title end\n"
+            "-- [disabled by wezterm-theme: conflicts with dynamic tab bar themes]\n"
+            "-- wezterm.on('format-tab-title', fmt)\n"
+            "-- config.font_size = 14\n"
+            "-- wezterm.on('update-status', function(window)\n"
+            "--   window:set_right_status('hi')\n"
+            "-- end)\n"
+            "-- a comment the user wrote\n"
+            "return config\n"
+        )
+        restored, count = restore_disabled_tab_handlers(legacy)
+        self.assertEqual(count, 1)
+        self.assertEqual(
+            restored,
+            "local function fmt(tab) return tab.active_pane.title end\n"
+            "wezterm.on('format-tab-title', fmt)\n"
+            "config.font_size = 14\n"
+            "wezterm.on('update-status', function(window)\n"
+            "  window:set_right_status('hi')\n"
+            "end)\n"
+            "-- a comment the user wrote\n"
+            "return config\n",
+        )
+
+    def test_agent_list_is_shared_by_tab_radar_and_status_toast(self) -> None:
+        lua = generate_lua_for_theme(get_theme_by_id(1), appearance={"status_bar": True})
+        agent_list = "{ " + ", ".join(f"'{name}'" for name in AI_AGENTS) + " }"
+        self.assertEqual(lua.count(agent_list), 2)
+        self.assertNotIn("probe:match(", lua)
+
+
+class SecurityAndRobustnessTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self._tmp.name)
+        self._old_env = os.environ.get("WEZTERM_CONFIG_FILE")
+        self.cfg_path = self.tmp_path / "wezterm.lua"
+        os.environ["WEZTERM_CONFIG_FILE"] = str(self.cfg_path)
+
+    def tearDown(self) -> None:
+        if self._old_env is None:
+            os.environ.pop("WEZTERM_CONFIG_FILE", None)
+        else:
+            os.environ["WEZTERM_CONFIG_FILE"] = self._old_env
+        self._tmp.cleanup()
+
+    def _write_basic_config(self, extra: str = "") -> None:
+        self.cfg_path.write_text(
+            "local wezterm = require 'wezterm'\n"
+            "local config = wezterm.config_builder()\n"
+            f"{extra}"
+            "return config\n",
+            encoding="utf-8",
+        )
+
+    def test_init_with_nested_closure_handler_then_rerun_is_noop(self) -> None:
+        self._write_basic_config(
+            "wezterm.on('format-tab-title', function(tab)\n"
+            "  local ok, t = pcall(function() return tab.active_pane.title end)\n"
+            "  return t\n"
+            "end)\n"
+        )
+        ok, msg = init_wezterm_config()
+        self.assertTrue(ok, msg)
+        after_first = self.cfg_path.read_text(encoding="utf-8")
+        self.assertEqual(_find_tab_title_handlers(after_first), [])
+
+        ok, msg = init_wezterm_config()
+        self.assertTrue(ok, msg)
+        self.assertIn("already integrated", msg)
+        self.assertEqual(self.cfg_path.read_text(encoding="utf-8"), after_first)
+
+    def test_init_upgrades_legacy_hook_with_absolute_module_path(self) -> None:
+        legacy_hook = (
+            "-- >>> wezterm-theme >>>\n"
+            "do\n"
+            "  local _wt_wz = require 'wezterm'\n"
+            "  local _wt_p = (_wt_wz.config_dir or '') .. '/wezterm_theme.lua'\n"
+            "  local _wt_f = io.open(_wt_p, 'r')\n"
+            "  if _wt_f then\n"
+            "    _wt_f:close()\n"
+            "    local _wt_ok, _wt_m = pcall(dofile, _wt_p)\n"
+            "    if _wt_ok and type(_wt_m) == 'table' and type(_wt_m.apply) == 'function' then\n"
+            "      _wt_m.apply(cfg, _wt_wz)\n"
+            "    end\n"
+            "  end\n"
+            "end\n"
+            "-- <<< wezterm-theme <<<\n"
+        )
+        self.cfg_path.write_text(
+            f"local wezterm = require 'wezterm'\nlocal cfg = wezterm.config_builder()\n{legacy_hook}return cfg\n",
+            encoding="utf-8",
+        )
+        ok, msg = init_wezterm_config()
+        self.assertTrue(ok, msg)
+        self.assertIn("Updated the wezterm-theme hook", msg)
+        text = self.cfg_path.read_text(encoding="utf-8")
+        self.assertIn((self.tmp_path / "wezterm_theme.lua").resolve().as_posix(), text)
+        self.assertIn("_wt_m.apply(cfg, _wt_wz)", text)
+        self.assertIn("log_error", text)
+
+        ok, msg = init_wezterm_config()
+        self.assertIn("already integrated", msg)
+
+    def test_invalid_loader_settings_json_is_never_overwritten(self) -> None:
+        (self.tmp_path / "defaults.json").write_text("{}", encoding="utf-8")
+        broken = '{\n  "keys": [ { "key": "k" } ],\n  "launch_menu": [ "htop" ],\n}\n'
+        settings = self.tmp_path / "settings.json"
+        settings.write_text(broken, encoding="utf-8")
+        self.cfg_path.write_text("-- WezTerm loader\nreturn {}\n", encoding="utf-8")
+
+        ok, _, err = apply_theme(get_theme_by_id(5))
+        self.assertFalse(ok)
+        self.assertIn("not valid JSON", err)
+        self.assertEqual(settings.read_text(encoding="utf-8"), broken)
+        self.assertFalse((self.tmp_path / "tab_theme.lua").exists())
+
+    def test_invalid_appearance_values_are_rejected_without_changes(self) -> None:
+        self._write_basic_config()
+        ok, msg = init_wezterm_config()
+        self.assertTrue(ok, msg)
+        before = (self.tmp_path / "wezterm_theme.json").read_text(encoding="utf-8")
+
+        for bad in (
+            {"font_size": "abc"},
+            {"font_family": "Evil\nFont"},
+            {"window_opacity": 3},
+            {"cursor_color": "red"},
+            {"status_bar": "maybe"},
+            {"window_padding": {"left": "x"}},
+        ):
+            ok, err = apply_appearance(bad)
+            self.assertFalse(ok, bad)
+            self.assertTrue(err)
+        self.assertEqual((self.tmp_path / "wezterm_theme.json").read_text(encoding="utf-8"), before)
+
+        ok, err = apply_appearance({"cursor_color": "Default", "font_size": "13.5", "status_bar": True})
+        self.assertTrue(ok, err)
+        self.assertEqual(get_current_state()["appearance"]["font_size"], 13.5)
+
+    def test_import_preset_from_long_json_string(self) -> None:
+        self._write_basic_config()
+        preset = {
+            "schema": "wezterm-theme-preset/v1",
+            "theme_id": 12,
+            "tab_title_len": 18,
+            "symbols": {"arrow": "chevron", "inactive": "radio", "marker": "balls", "prefix": "bolt"},
+            "appearance": {
+                "font_family": "JetBrains Mono",
+                "font_size": 13.5,
+                "color_scheme": "Catppuccin Mocha",
+                "window_opacity": 0.92,
+                "window_padding": 10,
+                "status_bar": True,
+                "open_in_editor": True,
+                "editor_cmd": "nvim",
+            },
+        }
+        raw = json.dumps(preset, indent=2)
+        self.assertGreater(max(len(part) for part in raw.split("/")), 255)
+        ok, msg = import_preset(raw)
+        self.assertTrue(ok, msg)
+        self.assertEqual(get_current_state()["theme_id"], 12)
+
+        ok, msg = import_preset({"theme_id": "abc"})
+        self.assertFalse(ok)
+        self.assertIn("theme_id", msg)
+
+    def test_concurrent_applies_are_serialized(self) -> None:
+        self._write_basic_config()
+        ok, msg = init_wezterm_config()
+        self.assertTrue(ok, msg)
+
+        active = 0
+        max_active = 0
+        counter_lock = threading.Lock()
+
+        def fake_validate(_path: Path) -> None:
+            nonlocal active, max_active
+            with counter_lock:
+                active += 1
+                max_active = max(max_active, active)
+            time.sleep(0.02)
+            with counter_lock:
+                active -= 1
+            return None
+
+        with mock.patch("wezterm_theme.core.validate_config", side_effect=fake_validate):
+            threads = [
+                threading.Thread(target=apply_theme, args=(get_theme_by_id(tid),)) for tid in (3, 7, 21, 40)
+            ]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+        self.assertEqual(max_active, 1)
+        st = get_current_state()
+        saved = json.loads((self.tmp_path / "wezterm_theme.json").read_text(encoding="utf-8"))
+        self.assertEqual(saved["theme_id"], st["theme_id"])
+
+    @unittest.skipIf(os.name == "nt", "symlinks need extra privileges on Windows")
+    def test_atomic_write_keeps_symlink_and_mode(self) -> None:
+        real = self.tmp_path / "dotfiles" / "wezterm.lua"
+        real.parent.mkdir()
+        real.write_text("old\n", encoding="utf-8")
+        os.chmod(real, 0o640)
+        link = self.tmp_path / "link.lua"
+        link.symlink_to(real)
+
+        _atomic_write_text(link, "new\n")
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(real.read_text(encoding="utf-8"), "new\n")
+        self.assertEqual(real.stat().st_mode & 0o777, 0o640)
+        self.assertEqual([p.name for p in real.parent.iterdir()], ["wezterm.lua"])
+
+    def test_missing_wezterm_binary_is_reported(self) -> None:
+        self._write_basic_config()
+        with mock.patch("wezterm_theme.core.find_wezterm_cmd", return_value=None), redirect_stderr(io.StringIO()):
+            ok, msg = init_wezterm_config()
+        self.assertTrue(ok, msg)
+        self.assertIn("Not validated", msg)
+
+    def test_http_rejects_cross_site_and_bad_input(self) -> None:
+        httpd, _ = create_server(host="127.0.0.1", port=0)
+        port = httpd.server_address[1]
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        base = f"http://127.0.0.1:{port}"
+        good = {"Content-Type": "application/json", "X-Studio-Token": httpd.studio_token}
+
+        def call(path: str, payload: object | None = None, headers: dict[str, str] | None = None) -> tuple[int, dict]:
+            data = None if payload is None else (payload if isinstance(payload, bytes) else json.dumps(payload).encode("utf-8"))
+            req = urllib.request.Request(f"{base}{path}", data=data, headers=headers or {}, method="POST" if data is not None else "GET")
+            try:
+                with urllib.request.urlopen(req) as resp:
+                    return resp.status, json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                with exc:
+                    return exc.code, json.loads(exc.read().decode("utf-8"))
+
+        self._write_basic_config()
+        try:
+            # Backing up before any theme exists must not silently apply one.
+            status, body = call("/api/backup", {"label": "first"}, good)
+            self.assertEqual(status, 200)
+            self.assertFalse(body["ok"])
+            self.assertFalse((self.tmp_path / "wezterm_theme.lua").exists())
+
+            update = {"updates": {"accent_border": True}}
+            self.assertEqual(call("/api/bootstrap", headers={"Host": f"evil.example:{port}"})[0], 403)
+            self.assertEqual(call("/api/apply-appearance", update, {"Content-Type": "application/json"})[0], 403)
+            self.assertEqual(call("/api/apply-appearance", update, {**good, "Content-Type": "text/plain"})[0], 415)
+            self.assertEqual(call("/api/apply-appearance", update, {**good, "Origin": "https://evil.example"})[0], 403)
+            self.assertEqual(call("/api/apply-appearance", update, {**good, "Host": f"evil.example:{port}"})[0], 403)
+
+            status, body = call("/api/apply-appearance", update, {**good, "Origin": base})
+            self.assertEqual(status, 200, body)
+            self.assertTrue(body["ok"], body)
+
+            status, body = call("/api/apply-tab-theme", {"theme_id": "abc"}, good)
+            self.assertEqual(status, 400)
+            self.assertFalse(body["ok"])
+            status, body = call("/api/apply-appearance", {"updates": {"font_size": "big"}}, good)
+            self.assertEqual(status, 400)
+            self.assertIn("font_size", body["msg"])
+            self.assertEqual(call("/api/import", {"preset": "/etc/passwd"}, good)[0], 400)
+            self.assertEqual(call("/api/import", b"[1, 2]", good)[0], 400)
+
+            preset_raw, _ = export_preset()
+            status, body = call("/api/import", {"preset": preset_raw}, good)
+            self.assertEqual(status, 200, body)
+            self.assertTrue(body["ok"], body)
+
+            with urllib.request.urlopen(f"{base}/") as resp:
+                self.assertEqual(resp.headers["X-Frame-Options"], "DENY")
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+
+class BackupAndMaintenanceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self._tmp.name)
+        self._old_env = os.environ.get("WEZTERM_CONFIG_FILE")
+        self.cfg_path = self.tmp_path / "wezterm.lua"
+        os.environ["WEZTERM_CONFIG_FILE"] = str(self.cfg_path)
+        self.cfg_path.write_text(
+            "local wezterm = require 'wezterm'\n"
+            "local config = wezterm.config_builder()\n"
+            "wezterm.on('format-tab-title', function(tab)\n"
+            "  return tab.active_pane.title\n"
+            "end)\n"
+            "return config\n",
+            encoding="utf-8",
+        )
+
+    def tearDown(self) -> None:
+        if self._old_env is None:
+            os.environ.pop("WEZTERM_CONFIG_FILE", None)
+        else:
+            os.environ["WEZTERM_CONFIG_FILE"] = self._old_env
+        self._tmp.cleanup()
+
+    def test_uninstall_reenables_handlers_disabled_by_init(self) -> None:
+        original = self.cfg_path.read_text(encoding="utf-8")
+        ok, msg = init_wezterm_config()
+        self.assertTrue(ok, msg)
+        self.assertEqual(_find_tab_title_handlers(self.cfg_path.read_text(encoding="utf-8")), [])
+
+        ok, msg = uninstall_wezterm_config()
+        self.assertTrue(ok, msg)
+        self.assertIn("re-enabled 1 format-tab-title handler", msg)
+        self.assertEqual(self.cfg_path.read_text(encoding="utf-8"), original)
+
+        init_wezterm_config()
+        ok, msg = uninstall_wezterm_config(restore_handlers=False)
+        self.assertTrue(ok, msg)
+        self.assertEqual(_find_tab_title_handlers(self.cfg_path.read_text(encoding="utf-8")), [])
+
+    def test_restore_by_exact_filename_and_across_modes(self) -> None:
+        ok, msg = init_wezterm_config()
+        self.assertTrue(ok, msg)
+        apply_theme(get_theme_by_id(31), tab_title_len=18)
+        apply_theme(get_theme_by_id(5))
+        b31 = next(b for b in get_available_backups() if b["theme_id"] == 31)
+
+        ok, msg = restore_backup(b31["filename"])
+        self.assertTrue(ok, msg)
+        self.assertEqual(get_current_state()["theme_id"], 31)
+
+        # Switch to loader mode: the standalone companion JSON must not replace settings.json.
+        (self.tmp_path / "defaults.json").write_text("{}", encoding="utf-8")
+        settings = self.tmp_path / "settings.json"
+        settings.write_text(json.dumps({"keys": {"leader": {"key": "a"}}}), encoding="utf-8")
+        self.cfg_path.write_text("-- WezTerm loader\nreturn {}\n", encoding="utf-8")
+        apply_theme(get_theme_by_id(5))
+
+        ok, msg = restore_backup(b31["filename"])
+        self.assertTrue(ok, msg)
+        self.assertIn("standalone mode", msg)
+        saved = json.loads(settings.read_text(encoding="utf-8"))
+        self.assertEqual(saved["keys"]["leader"]["key"], "a")
+        self.assertEqual(saved["tabs"]["theme_id"], 31)
+        self.assertEqual(saved["tabs"]["tab_title_len"], 18)
+        self.assertNotIn("appearance", saved)
+
+    def test_automatic_backups_are_pruned_but_user_labels_are_kept(self) -> None:
+        ok, msg = init_wezterm_config()
+        self.assertTrue(ok, msg)
+        for _ in range(MAX_PRE_RESTORE_BACKUPS + 3):
+            backup_current_config(label="pre_restore")
+        for _ in range(3):
+            backup_current_config(label="manual")
+        names = [p.name for p in (self.tmp_path / "backups").glob("tab_theme.lua.*.bak")]
+        self.assertEqual(sum("_pre_restore" in n for n in names), MAX_PRE_RESTORE_BACKUPS)
+        self.assertEqual(sum("_manual" in n for n in names), 3)
+
+        paths = resolve_wezterm_paths()
+        for _ in range(MAX_WEZTERM_LUA_BACKUPS + 2):
+            _backup_wezterm_lua(paths, "conflict_fix")
+        lua_backups = [p.name for p in (self.tmp_path / "backups").glob("wezterm.lua.*.bak")]
+        self.assertEqual(len(lua_backups), MAX_WEZTERM_LUA_BACKUPS + 1)
+        self.assertEqual(sum(n.endswith("_pre_init.bak") for n in lua_backups), 1)
+
+    def test_scheme_cache_is_refreshed_when_wezterm_changes(self) -> None:
+        fake = [
+            {"name": f"Fake {i}", "bg": "#000000", "fg": "#ffffff", "cursor": "#ffffff", "ansi": ["#000000"] * 8, "is_dark": True}
+            for i in range(60)
+        ]
+        cache_dir = self.tmp_path / "cache"
+        cache_dir.mkdir()
+        cache_file = cache_dir / "color_scheme_palettes.json"
+        with (
+            mock.patch.object(fonts_mod, "get_cache_dir", return_value=cache_dir),
+            mock.patch.object(fonts_mod, "_SCHEME_PALETTES_CACHE", None),
+            mock.patch.object(fonts_mod, "_SCHEMES_CACHE", None),
+        ):
+            cache_file.write_text(json.dumps({"wezterm_version": "wezterm 1", "palettes": fake}), encoding="utf-8")
+            with mock.patch.object(fonts_mod, "_wezterm_version", return_value="wezterm 1"):
+                self.assertEqual(fonts_mod.get_color_scheme_palettes()[0]["name"], "Fake 0")
+
+            fonts_mod._SCHEME_PALETTES_CACHE = None
+            with (
+                mock.patch.object(fonts_mod, "_wezterm_version", return_value="wezterm 2"),
+                mock.patch.object(fonts_mod, "find_wezterm_cmd", return_value=None),
+            ):
+                names = [p["name"] for p in fonts_mod.get_color_scheme_palettes()]
+            self.assertNotIn("Fake 0", names)
+
+            # Pre-versioning caches (bare list) stay usable when wezterm cannot rebuild them.
+            fonts_mod._SCHEME_PALETTES_CACHE = None
+            cache_file.write_text(json.dumps(fake), encoding="utf-8")
+            with mock.patch.object(fonts_mod, "_wezterm_version", return_value=None):
+                self.assertEqual(fonts_mod.get_color_scheme_palettes()[0]["name"], "Fake 0")
 
 
 if __name__ == "__main__":

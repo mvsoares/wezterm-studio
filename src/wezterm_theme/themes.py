@@ -1620,7 +1620,17 @@ def apply_symbols(t: dict[str, Any], sel: dict[str, str] | None) -> dict[str, An
 
 def _lua_str(val: str) -> str:
     escaped = val.replace("\\", "\\\\").replace("'", "\\'")
+    # Raw newlines/control chars would end the string literal; use Lua's \ddd escapes.
+    escaped = re.sub(r"[\x00-\x1f\x7f]", lambda m: f"\\{ord(m.group()):03d}", escaped)
     return f"'{escaped}'"
+
+
+# AI coding CLIs recognised by both the tab radar and the status-bar completion toast.
+AI_AGENTS = ("claude", "gemini", "antigravity", "agy", "codex", "aider", "opencode", "goose", "cline", "amp")
+
+
+def _lua_agent_list() -> str:
+    return "{ " + ", ".join(_lua_str(name) for name in AI_AGENTS) + " }"
 
 
 def _emit_appearance_lua(
@@ -1941,7 +1951,10 @@ def _emit_status_bar_lua(
         "              local pt = (ap.get_title and ap:get_title() or ''):lower()",
         "              local pf = ((ap.get_foreground_process_name and ap:get_foreground_process_name() or ''):match('([^/\\\\]+)$') or ''):lower()",
         "              local probe = ucmd .. ' ' .. pf .. ' ' .. pt",
-        "              local ag = probe:match('claude') or probe:match('gemini') or probe:match('antigravity') or probe:match('codex') or probe:match('aider') or probe:match('opencode') or probe:match('goose') or probe:match('cline')",
+        "              local ag = nil",
+        f"              for _, name in ipairs({_lua_agent_list()}) do",
+        "                if probe:find('%f[%w]' .. name .. '%f[%W]') then ag = name; break end",
+        "              end",
         "              if ag then",
         "                wezterm.GLOBAL._wt_agent_notified[pid] = true",
         "                local ttitle = (mtab.get_title and mtab:get_title()) or ''",
@@ -2550,10 +2563,8 @@ def generate_lua_for_theme(
         "  local split_sup = { [2] = '²', [3] = '³', [4] = '⁴', [5] = '⁵', [6] = '⁶', [7] = '⁷', [8] = '⁸', [9] = '⁹' }",
         f"  local ENABLE_AGENT_RADAR = {str(enable_agent_radar).lower()}",
         f"  local ENABLE_SSH_ALERT = {str(enable_ssh_alert).lower()}",
-        "  local ai_agents = {",
-        "    claude = true, gemini = true, antigravity = true, agy = true, codex = true,",
-        "    aider = true, opencode = true, goose = true, cline = true, amp = true,",
-        "  }",
+        "  local ai_agents = {}",
+        f"  for _, name in ipairs({_lua_agent_list()}) do ai_agents[name] = true end",
         "  local ssh_palettes = {",
         "    prod = { bg = '#dc2626', fg = '#ffffff', hover_bg = '#991b1b', hover_fg = '#ffffff', active_sym = '⚠ ', inactive_sym = ' ⚠' },",
         "    ssh  = { bg = '#d97706', fg = '#111827', hover_bg = '#92400e', hover_fg = '#fde68a', active_sym = '󰣀 ', inactive_sym = ' 󰣀' },",

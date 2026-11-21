@@ -72,8 +72,13 @@ def _cmd_init(argv: Sequence[str]) -> int:
 def _cmd_uninstall(argv: Sequence[str]) -> int:
     p = argparse.ArgumentParser(prog="wezterm-theme uninstall", description="Remove the wezterm-theme hook from wezterm.lua.")
     p.add_argument("--purge", action="store_true", help="Also delete generated wezterm_theme.lua and wezterm_theme.json files")
+    p.add_argument(
+        "--keep-disabled-handlers",
+        action="store_true",
+        help="Leave the format-tab-title handlers that 'init' commented out disabled (default: re-enable them)",
+    )
     ns = p.parse_args(argv)
-    ok, msg = uninstall_wezterm_config(remove_files=ns.purge)
+    ok, msg = uninstall_wezterm_config(remove_files=ns.purge, restore_handlers=not ns.keep_disabled_handlers)
     if ok:
         print(f"{GREEN}{BOLD}✔ {msg}{RESET}")
         return 0

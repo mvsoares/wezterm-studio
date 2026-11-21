@@ -3,12 +3,22 @@
 Binds to 127.0.0.1 by default, serves `assets/studio.html`, and exposes JSON endpoints
 to live-apply tab themes, custom symbols, fonts, color schemes, window settings,
 backups, and presets directly into WezTerm.
+
+Because these endpoints rewrite the user's WezTerm config, any web page open in the
+browser must not be able to call them. Requests are therefore checked for:
+- a loopback `Host` header (blocks DNS rebinding),
+- `Content-Type: application/json` on POST (forces a CORS preflight, which is refused),
+- a same-origin `Origin` header when present,
+- a per-process session token, embedded in the served HTML and sent back as
+  `X-Studio-Token`.
 """
 
 from __future__ import annotations
 
 import importlib.resources
+import ipaddress
 import json
+import secrets
 import socket
 import urllib.parse
 import webbrowser
@@ -18,6 +28,7 @@ from typing import Any
 from . import __version__
 from .core import (
     _KEEP,
+    VALIDATION_SKIPPED_MSG,
     apply_appearance,
     apply_theme,
     backup_current_config,
@@ -29,7 +40,10 @@ from .core import (
     get_session_snapshot_info,
     import_preset,
     init_wezterm_config,
+    normalize_appearance_updates,
+    normalize_symbols,
     restore_backup,
+    validation_available,
 )
 from .fonts import get_color_scheme_palettes, get_color_schemes, get_installed_fonts
 from .paths import has_gui_display, system_summary
@@ -43,11 +57,44 @@ from .themes import (
 )
 
 DEFAULT_PORT = 7777
+MAX_BODY_BYTES = 5 * 1024 * 1024
+TOKEN_HEADER = "X-Studio-Token"
+_LOOPBACK_HOST_NAMES = {"127.0.0.1", "localhost", "[::1]"}
+
+
+class RequestError(Exception):
+    """A client error that maps directly to an HTTP status and JSON message."""
+
+    def __init__(self, status: int, msg: str) -> None:
+        super().__init__(msg)
+        self.status = status
+        self.msg = msg
 
 
 def _load_studio_html() -> bytes:
     ref = importlib.resources.files("wezterm_theme").joinpath("assets/studio.html")
     return ref.read_bytes()
+
+
+def _render_studio_html(token: str) -> bytes:
+    """Serve the Studio page with this server's session token embedded for the JS API calls."""
+    meta = f'<head>\n  <meta name="studio-token" content="{token}">'.encode("utf-8")
+    return _load_studio_html().replace(b"<head>", meta, 1)
+
+
+def _is_loopback_host(host: str) -> bool:
+    name = host.strip().lower()
+    if name == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(name.strip("[]")).is_loopback
+    except ValueError:
+        return False
+
+
+def _studio_warnings(appearance: dict[str, Any] | None) -> list[str]:
+    warnings = [] if validation_available() else [VALIDATION_SKIPPED_MSG]
+    return warnings + detect_performance_warnings(appearance=appearance)
 
 
 def _serialize_backups() -> list[dict[str, Any]]:
@@ -94,36 +141,94 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
         # Keep terminal clean while serving UI requests
         pass
 
+    server: ReusableThreadingHTTPServer
+
     def _send_json(self, payload: Any, status: int = 200) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(body)
 
     def _read_json_body(self) -> dict[str, Any]:
-        length = int(self.headers.get("Content-Length", "0") or "0")
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+        except ValueError:
+            raise RequestError(400, "Invalid Content-Length header.") from None
+        if length > MAX_BODY_BYTES:
+            raise RequestError(413, f"Request body too large (limit {MAX_BODY_BYTES // (1024 * 1024)} MB).")
         if length <= 0:
             return {}
-        raw = self.rfile.read(length).decode("utf-8", errors="replace")
-        if not raw.strip():
-            return {}
-        data = json.loads(raw)
-        return data if isinstance(data, dict) else {}
+        try:
+            raw = self.rfile.read(length).decode("utf-8")
+            if not raw.strip():
+                return {}
+            data = json.loads(raw)
+        except ValueError as exc:
+            raise RequestError(400, f"Invalid JSON payload: {exc}") from None
+        if not isinstance(data, dict):
+            raise RequestError(400, "JSON payload must be an object.")
+        return data
+
+    def _check_host(self) -> None:
+        """Reject DNS-rebinding requests: a loopback-bound server only answers loopback Host names."""
+        if not self.server.loopback_only:
+            return
+        host = (self.headers.get("Host") or "").strip().lower()
+        name, sep, port = host.rpartition(":")
+        if not sep or port != str(self.server.server_address[1]) or name not in self.server.allowed_host_names:
+            raise RequestError(403, f"Host '{host}' is not allowed.")
+
+    def _check_post(self) -> None:
+        """Reject cross-site requests that try to change the configuration."""
+        ctype = (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+        if ctype != "application/json":
+            raise RequestError(415, "Content-Type must be application/json.")
+        origin = self.headers.get("Origin")
+        if origin is not None:
+            host = (self.headers.get("Host") or "").strip().lower()
+            if urllib.parse.urlsplit(origin.strip()).netloc.lower() != host:
+                raise RequestError(403, "Cross-origin requests are not allowed.")
+        token = (self.headers.get(TOKEN_HEADER) or "").encode("utf-8", "replace")
+        if not secrets.compare_digest(token, self.server.studio_token.encode("utf-8")):
+            raise RequestError(403, "Missing or invalid Studio session token; reload the page.")
+
+    def _dispatch(self, handler: Any, *args: Any) -> None:
+        try:
+            handler(*args)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        except RequestError as exc:
+            self._send_json({"ok": False, "msg": exc.msg}, status=exc.status)
+        except (ValueError, TypeError) as exc:
+            self._send_json({"ok": False, "msg": f"Invalid request: {exc}"}, status=400)
+        except Exception as exc:
+            self._send_json({"ok": False, "msg": f"Internal error: {exc}"}, status=500)
 
     def do_GET(self) -> None:
+        self._dispatch(self._handle_get)
+
+    def do_POST(self) -> None:
+        self._dispatch(self._handle_post)
+
+    def _handle_get(self) -> None:
+        self._check_host()
         parsed = urllib.parse.urlparse(self.path)
         route = parsed.path
         qs = urllib.parse.parse_qs(parsed.query)
 
         if route in ("/", "/index.html"):
-            html_bytes = _load_studio_html()
+            html_bytes = _render_studio_html(self.server.studio_token)
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(html_bytes)))
             self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("Content-Security-Policy", "frame-ancestors 'none'")
+            self.send_header("Referrer-Policy", "no-referrer")
             self.end_headers()
             self.wfile.write(html_bytes)
             return
@@ -134,7 +239,7 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 "ok": True,
                 "version": __version__,
                 "state": st,
-                "warnings": detect_performance_warnings(appearance=st.get("appearance")),
+                "warnings": _studio_warnings(st.get("appearance")),
                 "session": get_session_snapshot_info(),
                 "system": system_summary(),
                 "themes": THEMES,
@@ -177,21 +282,14 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
 
         self._send_json({"ok": False, "msg": f"Route not found: {route}"}, status=404)
 
-    def do_POST(self) -> None:
-        parsed = urllib.parse.urlparse(self.path)
-        route = parsed.path
-        try:
-            body = self._read_json_body()
-        except Exception as exc:
-            self._send_json({"ok": False, "msg": f"Invalid JSON payload: {exc}"}, status=400)
-            return
+    def _handle_post(self) -> None:
+        self._check_host()
+        self._check_post()
+        route = urllib.parse.urlparse(self.path).path
+        body = self._read_json_body()
 
-        if route == "/api/init":
-            ok, msg = init_wezterm_config(disable_conflicts=True)
-            self._send_json({"ok": ok, "msg": msg, "state": get_current_state()})
-            return
-
-        if route == "/api/fix-conflicts":
+        # `init` also resolves conflicts, so the UI's "Fix Automatically" button shares it.
+        if route in ("/api/init", "/api/fix-conflicts"):
             ok, msg = init_wezterm_config(disable_conflicts=True)
             self._send_json({"ok": ok, "msg": msg, "state": get_current_state()})
             return
@@ -217,7 +315,7 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             sym_arg: Any = _KEEP
             if "symbols" in body:
                 sym_val = body["symbols"]
-                sym_arg = _KEEP if sym_val == "keep" else sym_val
+                sym_arg = _KEEP if sym_val == "keep" else normalize_symbols(sym_val)
 
             ok, _, err = apply_theme(theme, tab_title_len=tlen, symbols=sym_arg)
             if not ok:
@@ -235,6 +333,11 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             if not isinstance(updates, dict) or not updates:
                 self._send_json({"ok": False, "msg": "No appearance updates provided."}, status=400)
                 return
+            # Validate up front so bad input is a 400, not a "WezTerm rejected" message.
+            updates = normalize_appearance_updates(updates)
+            if not updates:
+                self._send_json({"ok": False, "msg": "No known appearance settings in update."}, status=400)
+                return
             ok, err = apply_appearance(updates)
             if not ok:
                 self._send_json({"ok": False, "msg": f"WezTerm rejected update: {_short_err(err)}"})
@@ -245,19 +348,14 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 "ok": True,
                 "msg": label,
                 "state": new_st,
-                "warnings": detect_performance_warnings(appearance=new_st.get("appearance")),
+                "warnings": _studio_warnings(new_st.get("appearance")),
             })
             return
 
         if route == "/api/backup":
-            label = (body.get("label") or "").strip() or None
+            label = str(body.get("label") or "").strip() or None
             dest = backup_current_config(label=label)
-            if not dest:
-                st = get_current_state()
-                t = get_theme_by_id(st["theme_id"]) or THEMES[9]
-                apply_theme(t)
-                dest = backup_current_config(label=label)
-            msg = f"Backup saved: {dest.name}" if dest else "No active theme file found to back up."
+            msg = f"Backup saved: {dest.name}" if dest else "Nothing to back up yet: apply a tab theme first."
             self._send_json({"ok": bool(dest), "msg": msg, "backups": _serialize_backups()})
             return
 
@@ -277,6 +375,14 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
             if preset is None:
                 self._send_json({"ok": False, "msg": "Missing 'preset' field."}, status=400)
                 return
+            # Parse here: core.import_preset would treat a non-JSON string as a local file path.
+            if isinstance(preset, str):
+                try:
+                    preset = json.loads(preset)
+                except json.JSONDecodeError as exc:
+                    raise RequestError(400, f"Preset is not valid JSON: {exc}") from None
+            if not isinstance(preset, dict):
+                raise RequestError(400, "'preset' must be a JSON object.")
             ok, msg = import_preset(preset)
             self._send_json({"ok": ok, "msg": msg, "state": get_current_state()})
             return
@@ -286,6 +392,9 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
 
 class ReusableThreadingHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = True
+    studio_token: str = ""
+    loopback_only: bool = True
+    allowed_host_names: set[str] = _LOOPBACK_HOST_NAMES
 
 
 def _find_free_port(host: str, preferred: int, max_tries: int = 15) -> int:
@@ -304,6 +413,10 @@ def create_server(host: str = "127.0.0.1", port: int | None = None) -> tuple[Thr
     """Instantiate the HTTP server on `port` (or auto-select starting from 7777)."""
     actual_port = port if port is not None else _find_free_port(host, DEFAULT_PORT)
     httpd = ReusableThreadingHTTPServer((host, actual_port), StudioRequestHandler)
+    httpd.studio_token = secrets.token_urlsafe(32)
+    httpd.loopback_only = _is_loopback_host(host)
+    bound_name = f"[{host}]" if ":" in host else host
+    httpd.allowed_host_names = _LOOPBACK_HOST_NAMES | {bound_name.lower()}
     return httpd, actual_port
 
 
@@ -319,6 +432,11 @@ def run_studio_server(
     print(f"\n  \033[1;36m✦ WezTerm Studio v{__version__}\033[0m running at: \033[1;32m{url}\033[0m")
     print("  \033[2mChanges to tab themes, symbols, fonts, and colors hot-reload WezTerm in real time.\033[0m")
     print("  \033[2mPress Ctrl+C to stop the server.\033[0m\n")
+    if not httpd.loopback_only:
+        print(
+            f"  \033[1;33m⚠ Listening on {host}: anyone who can reach this address can load the page"
+            " and change your WezTerm configuration. Prefer the default 127.0.0.1.\033[0m\n"
+        )
 
     if open_browser and has_gui_display():
         try:
