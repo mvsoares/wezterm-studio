@@ -1476,40 +1476,40 @@
         const mBg = t.muted_bg || "#1b1f2b";
         const mFg = t.muted_fg || "#a3adc2";
         return [0,1,2,3].map(i => i === 0
-          ? seg(c.bg, c.fg, ` ${c.active_sym || ""}[main] 1 ${names[0]} ✕ `, true, false, pill)
-          : seg(mBg, c.bg, ` ${i + 1}`, true, false, false) + seg(mBg, mFg, `${c.inactive_sym || ""} ${names[i]} ✕ `, false, false, pill)
+          ? seg(c.bg, c.fg, ` ${c.active_sym || ""}[main] 1 ${names[0]} `, true, false, pill)
+          : seg(mBg, c.bg, ` ${i + 1}`, true, false, false) + seg(mBg, mFg, `${c.inactive_sym || ""} ${names[i]} `, false, false, pill)
         ).join("");
       }
       if (s === "crt_amber") {
         return [0,1,2,3].map(i => seg(p[i].bg, p[i].fg, ` [${i===0?"*":"-"} 0${i+1}:${names[i].toUpperCase()} ${i===0?"*":"-"}] `, i===0, i===0, pill)).join("");
       }
       if (s === "left_bar") {
-        return [0,1,2,3].map(i => seg(i===0?p[i].bg:"#1a1c23", i===0?p[i].fg:p[i].bg, `${i===0?"▌ ":"  "}${i+1} ${names[i]} ✕ `, i===0, i===0, pill)).join("");
+        return [0,1,2,3].map(i => seg(i===0?p[i].bg:"#1a1c23", i===0?p[i].fg:p[i].bg, `${i===0?"▌ ":"  "}${i+1} ${names[i]} `, i===0, i===0, pill)).join("");
       }
       if (s === "top_neon") {
-        return [0,1,2,3].map(i => seg(i===0?p[i].bg:"#151720", i===0?p[i].fg:p[i].bg, ` ▔ ${i+1} ${names[i]} ✕ `, i===0, i===0, pill)).join("");
+        return [0,1,2,3].map(i => seg(i===0?p[i].bg:"#151720", i===0?p[i].fg:p[i].bg, ` ▔ ${i+1} ${names[i]} `, i===0, i===0, pill)).join("");
       }
       if (s === "ghost") {
-        return [0,1,2,3].map(i => seg(i===0?"#252836":t.bg_bar, p[i].bg, ` ${i+1} ${names[i]} ✕ `, i===0, i===0, pill)).join("");
+        return [0,1,2,3].map(i => seg(i===0?"#252836":t.bg_bar, p[i].bg, ` ${i+1} ${names[i]} `, i===0, i===0, pill)).join("");
       }
       if (s === "outline") {
         return [0,1,2,3].map(i => seg(i===0?p[i].bg:"#161822", i===0?p[i].fg:p[i].bg, ` ${i===0?"【":"〔"}${i+1} ${names[i]}${i===0?"】":"〕"} `, i===0, i===0, pill)).join("");
       }
       if (s === "circle_numbers") {
         const cc = ["❶","❷","❸","❹"];
-        return [0,1,2,3].map(i => seg(p[i].bg, p[i].fg, ` ${cc[i]} ${names[i]} ✕ `, i===0, i===0, pill)).join("");
+        return [0,1,2,3].map(i => seg(p[i].bg, p[i].fg, ` ${cc[i]} ${names[i]} `, i===0, i===0, pill)).join("");
       }
       if (s === "smart_badges") {
         const ic = ["󰊢","󰅩","󰒋","󰜎"];
-        return [0,1,2,3].map(i => seg(p[i].bg, p[i].fg, ` ${ic[i]} ${i+1} ${names[i]} ✕ `, i===0, i===0, pill)).join("");
+        return [0,1,2,3].map(i => seg(p[i].bg, p[i].fg, ` ${ic[i]} ${i+1} ${names[i]} `, i===0, i===0, pill)).join("");
       }
       if (s === "pulse_dots") {
-        return [0,1,2,3].map(i => seg(p[i].bg, p[i].fg, ` ${i===0?(p[i].active_sym||""):(p[i].inactive_sym||"")}${i+1} ${names[i]} ✕ `, i===0, i===0, pill)).join("");
+        return [0,1,2,3].map(i => seg(p[i].bg, p[i].fg, ` ${i===0?(p[i].active_sym||""):(p[i].inactive_sym||"")}${i+1} ${names[i]} `, i===0, i===0, pill)).join("");
       }
       if (s === "mono_accent") {
         return [0,1,2,3].map(i => i === 0
-          ? seg(p[0].bg, p[0].fg, ` ${p[0].active_sym||""}1 ${names[0]} ✕ `, true, false, pill)
-          : seg(t.muted_bg || "#303134", t.muted_fg || "#9aa0a6", ` ${i+1}${p[i].inactive_sym||""} ${names[i]} ✕ `, false, false, pill)
+          ? seg(p[0].bg, p[0].fg, ` ${p[0].active_sym||""}1 ${names[0]} `, true, false, pill)
+          : seg(t.muted_bg || "#303134", t.muted_fg || "#9aa0a6", ` ${i+1}${p[i].inactive_sym||""} ${names[i]} `, false, false, pill)
         ).join("");
       }
       if (s === "project_color") {
@@ -1517,13 +1517,13 @@
         return pnames.map((nm, i) => {
           const c = p[projectSlot(nm, p.length)];
           const tx = i === 0 ? `${c.active_sym||""}1` : `${i+1}${c.inactive_sym||""}`;
-          return seg(c.bg, c.fg, ` ${tx} ${fmtFixed(nm, len)} ✕ `, i===0, i===0, pill);
+          return seg(c.bg, c.fg, ` ${tx} ${fmtFixed(nm, len)} `, i===0, i===0, pill);
         }).join("");
       }
       return [0,1,2,3].map(i => {
         const c = p[i];
         const tx = i === 0 ? `${c.active_sym||"⚡ ➜ "}1` : `${i+1}${c.inactive_sym||" 🔘"}`;
-        return seg(c.bg, c.fg, ` ${tx} ${names[i]} ✕ `, i===0, i===0, pill);
+        return seg(c.bg, c.fg, ` ${tx} ${names[i]} `, i===0, i===0, pill);
       }).join("");
     }
 

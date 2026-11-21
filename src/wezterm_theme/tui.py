@@ -171,33 +171,33 @@ def render_4_tab_bar(theme: dict[str, Any], tab_title_len: int = 15, max_cols: i
     if style == "workspace_color":
         muted_bg, muted_fg = theme.get("muted_bg", "#1b1f2b"), theme.get("muted_fg", "#a3adc2")
         ws_c = theme["palette"][project_slot("main", len(theme["palette"]))]
-        t0 = f"{ansi_bg(ws_c['bg'])}{ansi_fg(ws_c['fg'])}{BOLD} {ws_c.get('active_sym', '')}[main] 1 {l0} ✕ {RESET}"
+        t0 = f"{ansi_bg(ws_c['bg'])}{ansi_fg(ws_c['fg'])}{BOLD} {ws_c.get('active_sym', '')}[main] 1 {l0} {RESET}"
         rest = [
             f"{ansi_bg(muted_bg)}{ansi_fg(ws_c['bg'])}{BOLD} {n}{RESET}{ansi_bg(muted_bg)}{ansi_fg(muted_fg)}"
-            f"{ws_c.get('inactive_sym', '')} {lbl} ✕ {RESET}"
+            f"{ws_c.get('inactive_sym', '')} {lbl} {RESET}"
             for n, lbl in ((2, l1), (3, l2), (4, l3))
         ]
         return f"{ansi_bg(bg_bar)} {gap.join([t0, *rest])} {RESET}"
 
     if style == "smart_badges":
-        t0 = f"{ansi_bg(p0['bg'])}{ansi_fg(p0['fg'])}{BOLD} 󰊢 1 {l0} ✕ {RESET}"
-        t1 = f"{ansi_bg(p1['bg'])}{ansi_fg(p1['fg'])} 󰅩 2 {l1} ✕ {RESET}"
-        t2 = f"{ansi_bg(p2['bg'])}{ansi_fg(p2['fg'])} 󰒋 3 {l2} ✕ {RESET}"
-        t3 = f"{ansi_bg(p3['bg'])}{ansi_fg(p3['fg'])} 󰜎 4 {l3} ✕ {RESET}"
+        t0 = f"{ansi_bg(p0['bg'])}{ansi_fg(p0['fg'])}{BOLD} 󰊢 1 {l0} {RESET}"
+        t1 = f"{ansi_bg(p1['bg'])}{ansi_fg(p1['fg'])} 󰅩 2 {l1} {RESET}"
+        t2 = f"{ansi_bg(p2['bg'])}{ansi_fg(p2['fg'])} 󰒋 3 {l2} {RESET}"
+        t3 = f"{ansi_bg(p3['bg'])}{ansi_fg(p3['fg'])} 󰜎 4 {l3} {RESET}"
         return f"{ansi_bg(bg_bar)} {t0}{gap}{t1}{gap}{t2}{gap}{t3} {RESET}"
 
     if style == "circle_numbers":
-        t0 = f"{ansi_bg(p0['bg'])}{ansi_fg(p0['fg'])}{BOLD} ❶ {l0} ✕ {RESET}"
-        t1 = f"{ansi_bg(p1['bg'])}{ansi_fg(p1['fg'])} ❷ {l1} ✕ {RESET}"
-        t2 = f"{ansi_bg(p2['bg'])}{ansi_fg(p2['fg'])} ❸ {l2} ✕ {RESET}"
-        t3 = f"{ansi_bg(p3['bg'])}{ansi_fg(p3['fg'])} ❹ {l3} ✕ {RESET}"
+        t0 = f"{ansi_bg(p0['bg'])}{ansi_fg(p0['fg'])}{BOLD} ❶ {l0} {RESET}"
+        t1 = f"{ansi_bg(p1['bg'])}{ansi_fg(p1['fg'])} ❷ {l1} {RESET}"
+        t2 = f"{ansi_bg(p2['bg'])}{ansi_fg(p2['fg'])} ❸ {l2} {RESET}"
+        t3 = f"{ansi_bg(p3['bg'])}{ansi_fg(p3['fg'])} ❹ {l3} {RESET}"
         return f"{ansi_bg(bg_bar)} {t0}{gap}{t1}{gap}{t2}{gap}{t3} {RESET}"
 
     if style == "pulse_dots":
-        t0 = f"{ansi_bg(p0['bg'])}{ansi_fg(p0['fg'])}{BOLD} {p0.get('active_sym', '')}1 {l0} ✕ {RESET}"
-        t1 = f"{ansi_bg(p1['bg'])}{ansi_fg(p1['fg'])} {p1.get('inactive_sym', '')}2 {l1} ✕ {RESET}"
-        t2 = f"{ansi_bg(p2['bg'])}{ansi_fg(p2['fg'])} {p2.get('inactive_sym', '')}3 {l2} ✕ {RESET}"
-        t3 = f"{ansi_bg(p3['bg'])}{ansi_fg(p3['fg'])} {p3.get('inactive_sym', '')}4 {l3} ✕ {RESET}"
+        t0 = f"{ansi_bg(p0['bg'])}{ansi_fg(p0['fg'])}{BOLD} {p0.get('active_sym', '')}1 {l0} {RESET}"
+        t1 = f"{ansi_bg(p1['bg'])}{ansi_fg(p1['fg'])} {p1.get('inactive_sym', '')}2 {l1} {RESET}"
+        t2 = f"{ansi_bg(p2['bg'])}{ansi_fg(p2['fg'])} {p2.get('inactive_sym', '')}3 {l2} {RESET}"
+        t3 = f"{ansi_bg(p3['bg'])}{ansi_fg(p3['fg'])} {p3.get('inactive_sym', '')}4 {l3} {RESET}"
         return f"{ansi_bg(bg_bar)} {t0}{gap}{t1}{gap}{t2}{gap}{t3} {RESET}"
 
     if style == "crt_amber":
@@ -208,24 +208,24 @@ def render_4_tab_bar(theme: dict[str, Any], tab_title_len: int = 15, max_cols: i
         return f"{ansi_bg(bg_bar)} {t0}{gap}{t1}{gap}{t2}{gap}{t3} {RESET}"
 
     if style == "left_bar":
-        t0 = f"{ansi_bg(p0['bg'])}{ansi_fg(p0['fg'])}{BOLD}▌ 1 {l0} ✕ {RESET}"
-        t1 = f"{ansi_bg('#1a1c23')}{ansi_fg(p1['bg'])}  2 {l1} ✕ {RESET}"
-        t2 = f"{ansi_bg('#1a1c23')}{ansi_fg(p2['bg'])}  3 {l2} ✕ {RESET}"
-        t3 = f"{ansi_bg('#1a1c23')}{ansi_fg(p3['bg'])}  4 {l3} ✕ {RESET}"
+        t0 = f"{ansi_bg(p0['bg'])}{ansi_fg(p0['fg'])}{BOLD}▌ 1 {l0} {RESET}"
+        t1 = f"{ansi_bg('#1a1c23')}{ansi_fg(p1['bg'])}  2 {l1} {RESET}"
+        t2 = f"{ansi_bg('#1a1c23')}{ansi_fg(p2['bg'])}  3 {l2} {RESET}"
+        t3 = f"{ansi_bg('#1a1c23')}{ansi_fg(p3['bg'])}  4 {l3} {RESET}"
         return f"{ansi_bg(bg_bar)} {t0}{gap}{t1}{gap}{t2}{gap}{t3} {RESET}"
 
     if style == "ghost":
-        t0 = f"{ansi_bg('#252836')}{ansi_fg(p0['bg'])}{BOLD} 1 {l0} ✕ {RESET}"
-        t1 = f"{ansi_bg(bg_bar)}{ansi_fg(p1['bg'])} 2 {l1} ✕ {RESET}"
-        t2 = f"{ansi_bg(bg_bar)}{ansi_fg(p2['bg'])} 3 {l2} ✕ {RESET}"
-        t3 = f"{ansi_bg(bg_bar)}{ansi_fg(p3['bg'])} 4 {l3} ✕ {RESET}"
+        t0 = f"{ansi_bg('#252836')}{ansi_fg(p0['bg'])}{BOLD} 1 {l0} {RESET}"
+        t1 = f"{ansi_bg(bg_bar)}{ansi_fg(p1['bg'])} 2 {l1} {RESET}"
+        t2 = f"{ansi_bg(bg_bar)}{ansi_fg(p2['bg'])} 3 {l2} {RESET}"
+        t3 = f"{ansi_bg(bg_bar)}{ansi_fg(p3['bg'])} 4 {l3} {RESET}"
         return f"{ansi_bg(bg_bar)} {t0}{gap}{t1}{gap}{t2}{gap}{t3} {RESET}"
 
     if style == "top_neon":
-        t0 = f"{ansi_bg(p0['bg'])}{ansi_fg(p0['fg'])}{BOLD} ▔ 1 {l0} ✕ {RESET}"
-        t1 = f"{ansi_bg('#151720')}{ansi_fg(p1['bg'])} ▔ 2 {l1} ✕ {RESET}"
-        t2 = f"{ansi_bg('#151720')}{ansi_fg(p2['bg'])} ▔ 3 {l2} ✕ {RESET}"
-        t3 = f"{ansi_bg('#151720')}{ansi_fg(p3['bg'])} ▔ 4 {l3} ✕ {RESET}"
+        t0 = f"{ansi_bg(p0['bg'])}{ansi_fg(p0['fg'])}{BOLD} ▔ 1 {l0} {RESET}"
+        t1 = f"{ansi_bg('#151720')}{ansi_fg(p1['bg'])} ▔ 2 {l1} {RESET}"
+        t2 = f"{ansi_bg('#151720')}{ansi_fg(p2['bg'])} ▔ 3 {l2} {RESET}"
+        t3 = f"{ansi_bg('#151720')}{ansi_fg(p3['bg'])} ▔ 4 {l3} {RESET}"
         return f"{ansi_bg(bg_bar)} {t0}{gap}{t1}{gap}{t2}{gap}{t3} {RESET}"
 
     if style == "outline":
@@ -241,7 +241,7 @@ def render_4_tab_bar(theme: dict[str, Any], tab_title_len: int = 15, max_cols: i
             c = theme["palette"][project_slot(name, len(theme["palette"]))]
             lbl = format_tab_label(name, eff_len)
             text = f"{c.get('active_sym', '')}{n}" if n == 1 else f"{n}{c.get('inactive_sym', '')}"
-            tabs.append(f"{ansi_bg(c['bg'])}{ansi_fg(c['fg'])}{BOLD if n == 1 else ''} {text} {lbl} ✕ {RESET}")
+            tabs.append(f"{ansi_bg(c['bg'])}{ansi_fg(c['fg'])}{BOLD if n == 1 else ''} {text} {lbl} {RESET}")
         return f"{ansi_bg(bg_bar)} {gap.join(tabs)} {RESET}"
 
     if style == "activity":
@@ -250,26 +250,26 @@ def render_4_tab_bar(theme: dict[str, Any], tab_title_len: int = 15, max_cols: i
         la1 = format_tab_label("cargo|build", eff_len)
         la2 = format_tab_label("tests", eff_len)
         la3 = format_tab_label("infra", eff_len)
-        t0 = f"{ansi_bg(p0['bg'])}{ansi_fg(p0['fg'])}{BOLD} {p0.get('active_sym', '')}1 {la0} ✕ {RESET}"
-        t1 = f"{ansi_bg(p1['bg'])}{ansi_fg(p1['fg'])} ⏳ 2{p1.get('inactive_sym', '')} {la1} ✕ {RESET}"
-        t2 = f"{ansi_bg(p2['bg'])}{ansi_fg(alert)} ● {ansi_fg(p2['fg'])}3{p2.get('inactive_sym', '')} {la2} ✕ {RESET}"
-        t3 = f"{ansi_bg(p3['bg'])}{ansi_fg(p3['fg'])} 4{p3.get('inactive_sym', '')} {la3} ✕ {RESET}"
+        t0 = f"{ansi_bg(p0['bg'])}{ansi_fg(p0['fg'])}{BOLD} {p0.get('active_sym', '')}1 {la0} {RESET}"
+        t1 = f"{ansi_bg(p1['bg'])}{ansi_fg(p1['fg'])} ⏳ 2{p1.get('inactive_sym', '')} {la1} {RESET}"
+        t2 = f"{ansi_bg(p2['bg'])}{ansi_fg(alert)} ● {ansi_fg(p2['fg'])}3{p2.get('inactive_sym', '')} {la2} {RESET}"
+        t3 = f"{ansi_bg(p3['bg'])}{ansi_fg(p3['fg'])} 4{p3.get('inactive_sym', '')} {la3} {RESET}"
         return f"{ansi_bg(bg_bar)} {t0}{gap}{t1}{gap}{t2}{gap}{t3} {RESET}"
 
     if style == "mono_accent":
         muted_bg, muted_fg = theme.get("muted_bg", "#303134"), theme.get("muted_fg", "#9aa0a6")
-        t0 = f"{ansi_bg(p0['bg'])}{ansi_fg(p0['fg'])}{BOLD} {p0.get('active_sym', '')}1 {l0} ✕ {RESET}"
+        t0 = f"{ansi_bg(p0['bg'])}{ansi_fg(p0['fg'])}{BOLD} {p0.get('active_sym', '')}1 {l0} {RESET}"
         rest = [
             f"{ansi_bg(muted_bg)}{ansi_fg(p['bg'])}{BOLD} {n}{RESET}{ansi_bg(muted_bg)}{ansi_fg(muted_fg)}"
-            f"{p.get('inactive_sym', '')} {lbl} ✕ {RESET}"
+            f"{p.get('inactive_sym', '')} {lbl} {RESET}"
             for n, p, lbl in ((2, p1, l1), (3, p2, l2), (4, p3, l3))
         ]
         return f"{ansi_bg(bg_bar)} {gap.join([t0, *rest])} {RESET}"
 
-    t0 = f"{ansi_bg(p0['bg'])}{ansi_fg(p0['fg'])}{BOLD} {p0.get('active_sym', '⚡ ➜ ')}1 {l0} ✕ {RESET}"
-    t1 = f"{ansi_bg(p1['bg'])}{ansi_fg(p1['fg'])} 2{p1.get('inactive_sym', ' 🔘')} {l1} ✕ {RESET}"
-    t2 = f"{ansi_bg(p2['bg'])}{ansi_fg(p2['fg'])} 3{p2.get('inactive_sym', ' 🔘')} {l2} ✕ {RESET}"
-    t3 = f"{ansi_bg(p3['bg'])}{ansi_fg(p3['fg'])} 4{p3.get('inactive_sym', ' 🔘')} {l3} ✕ {RESET}"
+    t0 = f"{ansi_bg(p0['bg'])}{ansi_fg(p0['fg'])}{BOLD} {p0.get('active_sym', '⚡ ➜ ')}1 {l0} {RESET}"
+    t1 = f"{ansi_bg(p1['bg'])}{ansi_fg(p1['fg'])} 2{p1.get('inactive_sym', ' 🔘')} {l1} {RESET}"
+    t2 = f"{ansi_bg(p2['bg'])}{ansi_fg(p2['fg'])} 3{p2.get('inactive_sym', ' 🔘')} {l2} {RESET}"
+    t3 = f"{ansi_bg(p3['bg'])}{ansi_fg(p3['fg'])} 4{p3.get('inactive_sym', ' 🔘')} {l3} {RESET}"
     return f"{ansi_bg(bg_bar)} {t0}{gap}{t1}{gap}{t2}{gap}{t3} {RESET}"
 
 
