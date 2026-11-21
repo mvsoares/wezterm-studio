@@ -1239,8 +1239,10 @@ class BackupAndMaintenanceTests(unittest.TestCase):
     def test_automatic_backups_are_pruned_but_user_labels_are_kept(self) -> None:
         ok, msg = init_wezterm_config()
         self.assertTrue(ok, msg)
+        # Many backups land in the same second here; the newest must never be the one pruned.
         for _ in range(MAX_PRE_RESTORE_BACKUPS + 3):
-            backup_current_config(label="pre_restore")
+            newest = backup_current_config(label="pre_restore")
+            self.assertTrue(newest.exists(), newest)
         for _ in range(3):
             backup_current_config(label="manual")
         names = [p.name for p in (self.tmp_path / "backups").glob("tab_theme.lua.*.bak")]
@@ -1249,7 +1251,8 @@ class BackupAndMaintenanceTests(unittest.TestCase):
 
         paths = resolve_wezterm_paths()
         for _ in range(MAX_WEZTERM_LUA_BACKUPS + 2):
-            _backup_wezterm_lua(paths, "conflict_fix")
+            newest = _backup_wezterm_lua(paths, "conflict_fix")
+            self.assertTrue(newest.exists(), newest)
         lua_backups = [p.name for p in (self.tmp_path / "backups").glob("wezterm.lua.*.bak")]
         self.assertEqual(len(lua_backups), MAX_WEZTERM_LUA_BACKUPS + 1)
         self.assertEqual(sum(n.endswith("_pre_init.bak") for n in lua_backups), 1)

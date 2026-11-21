@@ -166,21 +166,24 @@ def _restore_or_remove(path: Path, previous: str | None) -> None:
         _atomic_write_text(path, previous)
 
 
-def _unique_backup_path(bkp_dir: Path, base_name: str, suffix: str) -> Path:
-    """Return `<base_name><suffix>` in `bkp_dir`, adding `-2`, `-3`… instead of overwriting."""
-    dest = bkp_dir / f"{base_name}{suffix}"
-    seq = 2
-    while dest.exists():
-        dest = bkp_dir / f"{base_name}-{seq}{suffix}"
-        seq += 1
-    return dest
+def _next_backup_path(bkp_dir: Path, prefix: str, suffix: str) -> Path:
+    """Return `<prefix>.<stamp>[-N]<suffix>` for a new backup taken now.
+
+    N is one above every backup already taken in the same second (any label), never a
+    lower number freed by pruning: a reused low number would sort the newest backup as
+    the oldest, so pruning could delete it immediately.
+    """
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    same_second = re.compile(re.escape(f"{prefix}.{stamp}") + r"(?:-(\d+))?[_.]")
+    seqs = [int(m.group(1) or 1) for f in bkp_dir.glob(f"{prefix}.{stamp}*") if (m := same_second.match(f.name))]
+    seq = max(seqs, default=0) + 1
+    return bkp_dir / (f"{prefix}.{stamp}{suffix}" if seq == 1 else f"{prefix}.{stamp}-{seq}{suffix}")
 
 
 def _backup_wezterm_lua(paths: dict[str, Path], reason: str) -> Path:
     bkp_dir = paths["backup_dir"]
     bkp_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    dest = _unique_backup_path(bkp_dir, f"wezterm.lua.{stamp}", f"_{reason}.bak")
+    dest = _next_backup_path(bkp_dir, "wezterm.lua", f"_{reason}.bak")
     shutil.copy2(paths["config_file"], dest)
     _prune_wezterm_lua_backups(bkp_dir)
     return dest
@@ -1419,15 +1422,9 @@ def backup_current_config(label: str | None = None, paths: dict[str, Path] | Non
 
     bkp_dir = paths["backup_dir"]
     bkp_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     clean_label = f"_{re.sub(r'[^a-zA-Z0-9_-]', '_', label)}" if label else ""
 
-    dest = bkp_dir / f"tab_theme.lua.{stamp}{clean_label}.bak"
-    seq = 2
-    while dest.exists():
-        dest = bkp_dir / f"tab_theme.lua.{stamp}-{seq}{clean_label}.bak"
-        seq += 1
-
+    dest = _next_backup_path(bkp_dir, "tab_theme.lua", f"{clean_label}.bak")
     shutil.copy2(active_lua, dest)
 
     # Also save companion state JSON alongside .bak if settings/studio json exists
