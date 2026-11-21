@@ -1176,6 +1176,17 @@
         </div>
 
         <div class="s-card">
+          <h3>⚡ Performance Profile &amp; Diagnostics</h3>
+          <div id="perfRendererInfo" style="font-size:0.82rem;color:var(--sub);">Renderer: …</div>
+          <div id="perfProfileBtns" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+          <div id="perfProfileDesc" style="font-size:0.8rem;color:var(--sub);min-height:2.4em;"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <button class="btn" id="perfBenchBtn" title="Runs the generated tab-bar and status-bar Lua inside WezTerm with 8 simulated tabs">⏱ Measure rendering cost</button>
+          </div>
+          <div id="perfBenchResult" style="font-size:0.8rem;color:var(--sub);"></div>
+        </div>
+
+        <div class="s-card">
           <h3>🚀 GPU, FPS &amp; Quick Select</h3>
           <div class="perf-warn" id="perfWarnBox"></div>
           <div class="s-row">
@@ -1194,6 +1205,30 @@
           <div class="s-row">
             <label for="animFpsInput" title="config.animation_fps (0 = default; set 1 for ultra-low CPU on Software renderer)">Animation FPS (0 = default)</label>
             <input id="animFpsInput" type="number" min="0" max="255" step="1" value="0" placeholder="Auto">
+          </div>
+          <div class="s-row">
+            <label for="webgpuPowerSelect" title="config.webgpu_power_preference: which GPU WebGpu uses (only with front_end = WebGpu)">WebGpu GPU</label>
+            <select id="webgpuPowerSelect">
+              <option value="Default">Default (integrated)</option>
+              <option value="LowPower">LowPower (integrated)</option>
+              <option value="HighPerformance">HighPerformance (discrete)</option>
+            </select>
+          </div>
+          <div class="s-row">
+            <label for="cursorEaseSelect" title="config.cursor_blink_ease_in/out: Constant is a plain on/off blink, cheapest with Animation FPS 1">Cursor blink easing</label>
+            <select id="cursorEaseSelect">
+              <option value="Default">Default (Linear)</option>
+              <option value="Constant">Constant (on/off)</option>
+              <option value="Linear">Linear</option>
+              <option value="Ease">Ease</option>
+              <option value="EaseIn">EaseIn</option>
+              <option value="EaseOut">EaseOut</option>
+              <option value="EaseInOut">EaseInOut</option>
+            </select>
+          </div>
+          <div class="s-row">
+            <label for="statusIntervalInput" title="config.status_update_interval in ms (0 = default; Studio uses 5000, WezTerm 1000)">Status bar update (ms, 0 = default)</label>
+            <input id="statusIntervalInput" type="number" min="0" max="600000" step="1000" value="0" placeholder="Auto">
           </div>
           <div class="s-row">
             <label for="waylandSelect" title="Explicitly force or disable Wayland protocol on Linux">Wayland support (Linux)</label>
@@ -1257,6 +1292,7 @@
     let BOOT = null;
     let STATE = null;
     let PERF_WARNINGS = [];
+    let PERF = null;
     let SESSION_INFO = null;
     let FONTS = [];
     let SCHEME_PALETTES = [];
@@ -1517,6 +1553,7 @@
             if (res.ok) {
               STATE = res.state;
               if (res.warnings) PERF_WARNINGS = res.warnings;
+              if (res.perf) PERF = res.perf;
               syncHeaderAndAppearanceUI();
               setStatus("✔ " + res.msg, "ok");
             } else {
@@ -1632,6 +1669,10 @@
       document.getElementById("maxFpsInput").value = app.max_fps != null ? app.max_fps : 0;
       document.getElementById("animFpsInput").value = app.animation_fps != null ? app.animation_fps : 0;
       document.getElementById("waylandSelect").value = app.enable_wayland == null ? "auto" : String(!!app.enable_wayland);
+      document.getElementById("webgpuPowerSelect").value = app.webgpu_power_preference || "Default";
+      document.getElementById("cursorEaseSelect").value = app.cursor_blink_ease || "Default";
+      document.getElementById("statusIntervalInput").value = app.status_update_interval != null ? app.status_update_interval : 0;
+      renderPerfCard();
       document.getElementById("quickSelectCheck").checked = !!app.quick_select;
 
       const pwBox = document.getElementById("perfWarnBox");
@@ -1747,6 +1788,7 @@
           if (res.ok) {
             STATE = res.state;
             if (res.warnings) PERF_WARNINGS = res.warnings;
+            if (res.perf) PERF = res.perf;
             syncHeaderAndAppearanceUI();
             renderThemesGrid();
             renderSymbolDrawer();
@@ -1909,6 +1951,7 @@
       if (res.ok) {
         STATE = res.state;
         if (res.warnings) PERF_WARNINGS = res.warnings;
+        if (res.perf) PERF = res.perf;
         syncHeaderAndAppearanceUI();
         renderFontsGrid();
         renderThemesGrid();
@@ -1970,6 +2013,7 @@
           if (res.ok) {
             STATE = res.state;
             if (res.warnings) PERF_WARNINGS = res.warnings;
+            if (res.perf) PERF = res.perf;
             draftSymbols = STATE.symbols || null;
             syncHeaderAndAppearanceUI();
             renderThemesGrid();
@@ -2001,6 +2045,7 @@
       if (res.ok) {
         STATE = res.state;
         if (res.warnings) PERF_WARNINGS = res.warnings;
+        if (res.perf) PERF = res.perf;
         syncHeaderAndAppearanceUI();
         setStatus("✔ " + res.msg, "ok");
       } else {
@@ -2036,6 +2081,7 @@
         if (res.ok) {
           STATE = res.state;
           if (res.warnings) PERF_WARNINGS = res.warnings;
+          if (res.perf) PERF = res.perf;
           syncHeaderAndAppearanceUI();
           setStatus(`✔ Tab title width set to ${len} chars`, "ok");
         } else {
@@ -2069,6 +2115,7 @@
       if (res.ok) {
         STATE = res.state;
         if (res.warnings) PERF_WARNINGS = res.warnings;
+        if (res.perf) PERF = res.perf;
         syncHeaderAndAppearanceUI();
         renderThemesGrid();
         renderSymbolDrawer();
@@ -2085,6 +2132,7 @@
       if (res.ok) {
         STATE = res.state;
         if (res.warnings) PERF_WARNINGS = res.warnings;
+        if (res.perf) PERF = res.perf;
         syncHeaderAndAppearanceUI();
         renderThemesGrid();
         renderSymbolDrawer();
@@ -2316,6 +2364,63 @@
       const v = Math.max(0, Math.min(255, parseInt(e.target.value, 10) || 0));
       updateAppearance({ animation_fps: v }, v > 0 ? `Animation FPS → ${v}` : "Animation FPS → Default");
     });
+    document.getElementById("webgpuPowerSelect").addEventListener("change", e => {
+      updateAppearance({ webgpu_power_preference: e.target.value }, `WebGpu GPU → ${e.target.value}`);
+    });
+    document.getElementById("cursorEaseSelect").addEventListener("change", e => {
+      updateAppearance({ cursor_blink_ease: e.target.value }, `Cursor blink easing → ${e.target.value}`);
+    });
+    document.getElementById("statusIntervalInput").addEventListener("change", e => {
+      const v = Math.max(0, Math.min(600000, parseInt(e.target.value, 10) || 0));
+      updateAppearance({ status_update_interval: v }, v > 0 ? `Status bar update → ${v} ms` : "Status bar update → Default");
+    });
+
+    // ── Performance profiles: a profile only writes the settings listed in its preview ──
+    const fmtSetting = v => (v === null || v === undefined) ? "default" : String(v);
+    function renderPerfCard() {
+      const perf = PERF;
+      if (!perf) return;
+      const r = perf.renderer || {};
+      const src = { studio: "set by Studio", "wezterm.lua": "set in wezterm.lua", default: "WezTerm default" }[r.source] || "";
+      document.getElementById("perfRendererInfo").innerHTML =
+        `Renderer: <strong>${esc(r.front_end || "?")}</strong> (${esc(src)}) · Active profile: <strong>${esc(
+          (perf.profiles.find(p => p.id === perf.active_profile) || { label: "Custom" }).label)}</strong>`;
+      const box = document.getElementById("perfProfileBtns");
+      box.innerHTML = perf.profiles.map(p =>
+        `<button class="pill-btn${p.id === perf.active_profile ? " active" : ""}" data-profile="${esc(p.id)}" title="${esc(p.description)}">${esc(p.label)}</button>`
+      ).join("");
+      box.querySelectorAll("button").forEach(btn => {
+        const prof = perf.profiles.find(p => p.id === btn.dataset.profile);
+        btn.addEventListener("mouseenter", () => {
+          const diff = prof.changes.length
+            ? "Would change: " + prof.changes.map(c => `${c.key} ${fmtSetting(c.from)} → ${fmtSetting(c.to)}`).join(", ")
+            : "Already active.";
+          document.getElementById("perfProfileDesc").textContent = `${prof.description} ${diff}`;
+        });
+        btn.addEventListener("click", () => applyPerfProfile(prof));
+      });
+    }
+    async function applyPerfProfile(prof) {
+      if (prof.changes.length) {
+        const lines = prof.changes.map(c => `• ${c.key}: ${fmtSetting(c.from)} → ${fmtSetting(c.to)}`).join("\n");
+        if (!window.confirm(`Apply the "${prof.label}" profile?\n\n${lines}\n\nEvery apply makes a backup, so you can restore the previous settings.`)) return;
+      }
+      setStatus(`Applying ${prof.label} profile...`);
+      const res = await apiPost("/api/perf-profile", { profile: prof.id });
+      if (res.state) STATE = res.state;
+      if (res.warnings) PERF_WARNINGS = res.warnings;
+      if (res.perf) PERF = res.perf;
+      if (res.perf) PERF = res.perf;
+      syncHeaderAndAppearanceUI();
+      setStatus((res.ok ? "✔ " : "✖ ") + (res.msg || "Failed to apply profile"), res.ok ? "ok" : "err");
+    }
+    document.getElementById("perfBenchBtn").addEventListener("click", async () => {
+      const out = document.getElementById("perfBenchResult");
+      out.textContent = "Measuring inside WezTerm...";
+      const res = await apiPost("/api/perf-benchmark", {});
+      out.innerHTML = res.ok ? res.lines.map(l => `⏱ ${esc(l)}`).join("<br>") : `⚠ ${esc(res.msg || "Benchmark failed")}`;
+    });
+
     document.getElementById("waylandSelect").addEventListener("change", e => {
       const v = e.target.value === "auto" ? "auto" : (e.target.value === "true");
       updateAppearance({ enable_wayland: v }, `Wayland → ${e.target.options[e.target.selectedIndex].text}`);
@@ -2395,6 +2500,7 @@
       if (res.ok) {
         STATE = res.state;
         if (res.warnings) PERF_WARNINGS = res.warnings;
+        if (res.perf) PERF = res.perf;
         draftSymbols = STATE.symbols || null;
         syncHeaderAndAppearanceUI();
         renderThemesGrid();
@@ -2424,6 +2530,7 @@
       }
       STATE = BOOT.state;
       PERF_WARNINGS = BOOT.warnings || [];
+      PERF = BOOT.perf || null;
       if (BOOT.session) renderSessionSnapshot(BOOT.session);
       draftSymbols = STATE.symbols || null;
       document.getElementById("navThemesTab").textContent = `🎨 Tab Bar Themes (${BOOT.themes.length})`;

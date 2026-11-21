@@ -19,6 +19,7 @@ It combines a fast **CLI**, an **ANSI TrueColor TUI**, and a **Local Web Studio*
 - 🌈 **1,100+ Visual Color Scheme Swatches, OLED Black, Frosted-Glass Blur & Window Controls** — browse visual terminal swatch cards (`bg`, `fg`, `cursor`, 8 ANSI colors, Dark/Light filters), 1-click **OLED `#000000` background** & custom cursor color overrides, cross-platform frosted-glass blur (`macOS`, `KDE`, `Windows 11 Acrylic/Mica`), optional theme-tinted Studio right-status bar, inactive split-pane dimming (`inactive_pane_hsb`), GPU `Oklab` radial gradients, and 1px theme-accented frame borders.
 - ⌨ **Native In-WezTerm Command Palette (`Ctrl+Shift+P`), Project Workspace Switcher & Session Snapshots** — switch across all 62 tab themes with inline ANSI swatches, fuzzy-jump across `zoxide` & Git project workspaces, **Save & Restore Workspace Session Snapshots** (`wezterm_session.json`), toggle ephemeral **Presentation / Zen Mode** (`+4pt` font, hidden tab bar, `1.0` opacity, centered padding), step window opacity, toggle ligatures, or launch Browser Web Studio without leaving WezTerm.
 - 🚀 **GPU Renderer / FPS Tuner & Quick Select Power Patterns** — configure `WebGpu` / `OpenGL` / `Software`, `max_fps`, `animation_fps`, Linux Wayland mode, and DevOps `quick_select_patterns` (`Ctrl+Shift+Space` for Git SHAs, UUIDs, IPs, K8s pods, and `file:line`), backed by smart CPU/renderer diagnostics in `wezterm-theme doctor`.
+- ⚡ **Performance Profiles & Rendering Benchmark** — one-click *Battery saver*, *Max smoothness*, *Remote / no GPU* or *Default* profiles (Web Studio, TUI `[perf]`, `--perf-profile`) that show every setting they change before applying it, plus `webgpu_power_preference`, cursor blink easing and status-bar interval controls. `wezterm-theme doctor --perf` measures what the generated tab-bar and status-bar Lua costs inside WezTerm.
 - 🤖 **AI Coding Agent Radar & SSH/Production Danger Tint** — automatically badges tabs running AI coding CLIs (`Claude Code`, `Gemini CLI`, `Antigravity`, `Codex`, `Aider`, `OpenCode`, `Goose`, `Cline`, `Amp`) with `🤖` / `🤖●` + one-shot desktop completion notifications, and tints remote SSH tabs amber (`󰣀`) or production/root SSH sessions (`prod*`, `prd*`, `root@*`) crimson (`⚠ PROD`) so you never confuse production with local.
 - 💾 **Instant Backups & Portable JSON Presets** — automatic pre-validation via `wezterm` with rollback protection, timestamped backups, and OS-agnostic JSON presets shareable across Linux, macOS, and Windows.
 
@@ -141,6 +142,12 @@ wezterm-theme --status-bar --dim-inactive 0.78 --gradient --border --font-fallba
 # Tune GPU renderer, refresh rate, Quick Select patterns & inspect saved workspace sessions
 wezterm-theme --front-end WebGpu --max-fps 120 --quick-select
 wezterm-theme session status
+
+# Performance profiles (default | battery | smooth | remote); explicit flags win over the profile
+wezterm-theme --perf-profile battery
+wezterm-theme --perf-profile smooth --max-fps 144
+wezterm-theme --webgpu-power HighPerformance --cursor-blink-ease Constant --status-interval 10000
+wezterm-theme doctor --perf   # renderer, active profile and tab-bar/status-bar Lua cost
 
 # Inspect installed fonts, visual scheme swatches, theme catalog, active status, or diagnostics
 wezterm-theme fonts --nerd

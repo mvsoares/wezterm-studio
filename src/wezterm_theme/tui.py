@@ -18,11 +18,16 @@ import unicodedata
 from typing import Any
 
 from .core import (
+    PERF_PROFILES,
+    PERF_TUNING_KEYS,
     apply_appearance,
+    apply_perf_profile,
     apply_theme,
     backup_current_config,
+    detect_performance_warnings,
     get_available_backups,
     get_current_state,
+    get_perf_overview,
     init_wezterm_config,
     is_loader_mode,
     restore_backup,
@@ -30,6 +35,7 @@ from .core import (
 )
 from .fonts import get_color_scheme_palettes, get_color_schemes, get_installed_fonts
 from .paths import resolve_wezterm_paths
+from .perf import BenchmarkError, benchmark_current, format_benchmark
 from .server import run_studio_server
 from .themes import (
     CATEGORIES,
@@ -634,6 +640,80 @@ def fonts_menu() -> str:
             page = 0
 
 
+def _setting_text(value: Any) -> str:
+    return "default" if value is None else str(value)
+
+
+def perf_menu() -> str:
+    """Performance profiles, effective renderer, warnings and the rendering benchmark."""
+    names = list(PERF_PROFILES)
+    status_msg = ""
+    while True:
+        app = get_current_state()["appearance"]
+        overview = get_perf_overview(appearance=app)
+        warnings = detect_performance_warnings(appearance=app)
+        renderer = overview["renderer"]
+        term_cols = shutil.get_terminal_size((90, 28)).columns
+        box_w = max(68, min(90, term_cols - 4))
+        hdr = "  ⚡ PERFORMANCE PROFILES & DIAGNOSTICS"
+        hdr_pad = hdr + " " * max(0, box_w - visible_len(hdr))
+
+        print("\033[2J\033[H", end="")
+        print(f"{BOLD}{BLUE}╔{'═' * box_w}╗{RESET}")
+        print(f"{BOLD}{BLUE}║{hdr_pad}║{RESET}")
+        print(f"{BOLD}{BLUE}╚{'═' * box_w}╝{RESET}")
+        source = {"studio": "set by Studio", "wezterm.lua": "set in wezterm.lua", "default": "WezTerm default"}[renderer["source"]]
+        active = PERF_PROFILES.get(overview["active_profile"], {}).get("label", "Custom")
+        print(f"\n  {GREEN}Renderer:{RESET} {BOLD}{renderer['front_end']}{RESET} {DIM}({source}){RESET}   {CYAN}Profile:{RESET} {BOLD}{active}{RESET}")
+        print("  " + f" {DIM}·{RESET} ".join(f"{DIM}{key}:{RESET} {BOLD}{_setting_text(app.get(key))}{RESET}" for key in PERF_TUNING_KEYS))
+
+        print(f"\n  {BOLD}Profiles:{RESET}")
+        for i, prof in enumerate(overview["profiles"], start=1):
+            mark = f" {GREEN}★ active{RESET}" if prof["id"] == overview["active_profile"] else ""
+            print(f"    {BOLD}[{i}] {prof['label']}{RESET}{mark}  {DIM}{prof['description']}{RESET}")
+            if prof["changes"]:
+                diff = ", ".join(f"{c['key']} {_setting_text(c['from'])} → {_setting_text(c['to'])}" for c in prof["changes"])
+                print(f"        {DIM}would change: {diff}{RESET}")
+
+        if warnings:
+            print(f"\n  {YELLOW}{BOLD}⚠ Warnings:{RESET}")
+            for w in warnings:
+                print(f"    {YELLOW}• {w}{RESET}")
+        if status_msg:
+            print(f"\n  {status_msg}")
+            status_msg = ""
+
+        print(f"\n  {DIM}[1-{len(names)}] Apply profile | [bench] Measure tab-bar & status-bar cost in WezTerm | [q] Back{RESET}")
+        try:
+            ans = input(f"  {BOLD}{CYAN}❯ Profile or command:{RESET} ").strip()
+        except (KeyboardInterrupt, EOFError):
+            return "Performance menu closed."
+        low = ans.lower()
+        if not ans or low in ("q", "quit", "back", "exit"):
+            return "Returned to theme catalog."
+        if low in ("bench", "benchmark", "measure"):
+            try:
+                status_msg = "\n  ".join(f"{GREEN}⏱ {line}{RESET}" for line in format_benchmark(benchmark_current()))
+            except BenchmarkError as exc:
+                status_msg = f"{YELLOW}Benchmark skipped: {exc}{RESET}"
+            continue
+        name = names[int(low) - 1] if low.isdecimal() and 1 <= int(low) <= len(names) else (low if low in PERF_PROFILES else None)
+        if name is None:
+            status_msg = f"{RED}Choose 1-{len(names)}, a profile name ({', '.join(names)}), bench or q.{RESET}"
+            continue
+        changes = next(p["changes"] for p in overview["profiles"] if p["id"] == name)
+        if changes:
+            try:
+                confirm = input(f"  {BOLD}Apply {len(changes)} change(s) from '{PERF_PROFILES[name]['label']}'? [y/N]:{RESET} ").strip().lower()
+            except (KeyboardInterrupt, EOFError):
+                confirm = ""
+            if confirm not in ("y", "yes", "s", "sim"):
+                status_msg = f"{DIM}Nothing changed.{RESET}"
+                continue
+        ok, msg = apply_perf_profile(name)
+        status_msg = f"{GREEN}{BOLD}✔ {msg}{RESET}" if ok else f"{RED}✖ {msg}{RESET}"
+
+
 def color_scheme_menu() -> str:
     """Interactive quick Color Scheme & Workflow Radar picker."""
     schemes = get_color_schemes()
@@ -993,7 +1073,7 @@ def interactive_picker(themes: list[dict[str, Any]] = THEMES, initial_filter: st
 
         print(
             f"  {DIM}Commands: {BOLD}[1-{len(themes)}]{RESET}{DIM} Apply Theme  |  {BOLD}[s]{RESET}{DIM} Symbols  |  "
-            f"{BOLD}[f]{RESET}{DIM} Fonts & Size  |  {BOLD}[cs]{RESET}{DIM} Color Scheme  |  {BOLD}[w]{RESET}{DIM} Web Studio{RESET}"
+            f"{BOLD}[f]{RESET}{DIM} Fonts & Size  |  {BOLD}[cs]{RESET}{DIM} Color Scheme  |  {BOLD}[perf]{RESET}{DIM} Performance  |  {BOLD}[w]{RESET}{DIM} Web Studio{RESET}"
         )
         print(
             f"  {DIM}Navigate: {BOLD}[n/p]{RESET}{DIM} Page  |  {BOLD}[/query]{RESET}{DIM} Filter  |  "
@@ -1032,6 +1112,8 @@ def interactive_picker(themes: list[dict[str, Any]] = THEMES, initial_filter: st
             status_msg = fonts_menu()
         elif low in ("cs", "scheme", "colors"):
             status_msg = color_scheme_menu()
+        elif low in ("perf", "performance", "gpu"):
+            status_msg = perf_menu()
         elif low in ("w", "web", "studio", "html"):
             run_studio_server(open_browser=True)
             status_msg = f"{GREEN}Web Studio server stopped.{RESET}"

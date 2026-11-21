@@ -15,6 +15,7 @@ from typing import Sequence
 
 from . import __version__
 from .core import (
+    PERF_PROFILES,
     VALIDATION_SKIPPED_MSG,
     apply_appearance,
     apply_theme,
@@ -25,6 +26,7 @@ from .core import (
     export_preset,
     get_available_backups,
     get_current_state,
+    get_perf_overview,
     get_session_snapshot_info,
     import_preset,
     init_wezterm_config,
@@ -35,8 +37,9 @@ from .core import (
 )
 from .fonts import get_color_scheme_palettes, get_color_schemes, get_installed_fonts
 from .paths import init_terminal, resolve_wezterm_paths, system_summary
+from .perf import BenchmarkError, benchmark_current, format_benchmark
 from .server import DEFAULT_PORT, run_studio_server
-from .themes import THEMES, apply_symbols, filter_themes, find_theme, get_theme_by_id
+from .themes import CURSOR_EASINGS, THEMES, apply_symbols, filter_themes, find_theme, get_theme_by_id
 from .tui import (
     BOLD,
     CYAN,
@@ -138,7 +141,12 @@ def _cmd_fonts(argv: Sequence[str]) -> int:
 
 def _cmd_doctor(argv: Sequence[str]) -> int:
     p = argparse.ArgumentParser(prog="wezterm-theme doctor", description="Run cross-platform diagnostics and WezTerm config validation.")
-    p.parse_args(argv)
+    p.add_argument(
+        "--perf",
+        action="store_true",
+        help="Also benchmark the generated tab-bar and status-bar Lua inside WezTerm",
+    )
+    ns = p.parse_args(argv)
     info = system_summary()
     state = get_current_state()
     paths = resolve_wezterm_paths()
@@ -161,6 +169,18 @@ def _cmd_doctor(argv: Sequence[str]) -> int:
         )
     else:
         print(f"  {BOLD}Session Snapshot:{RESET}   none saved yet (use Ctrl+Shift+P in WezTerm)")
+    perf = get_perf_overview(paths, state.get("appearance"))
+    renderer = perf["renderer"]
+    source = {"studio": "set by Studio", "wezterm.lua": "set in wezterm.lua", "default": "WezTerm default"}[renderer["source"]]
+    profile = PERF_PROFILES.get(perf["active_profile"], {}).get("label", "Custom")
+    print(f"  {BOLD}Renderer:{RESET}           {renderer['front_end']} ({source})")
+    print(f"  {BOLD}Perf Profile:{RESET}       {profile}")
+    if ns.perf:
+        try:
+            for line in format_benchmark(benchmark_current(paths)):
+                print(f"  {BOLD}Benchmark:{RESET}          {line}")
+        except BenchmarkError as exc:
+            print(f"  {BOLD}Benchmark:{RESET}          {YELLOW}skipped: {exc}{RESET}")
 
     cfg_path = paths["config_file"]
     if cfg_path.is_file():
@@ -294,6 +314,12 @@ def _print_current_status() -> None:
         extras.append(f"Max FPS: {app['max_fps']}")
     if app.get("animation_fps"):
         extras.append(f"Anim FPS: {app['animation_fps']}")
+    if app.get("webgpu_power_preference"):
+        extras.append(f"GPU: {app['webgpu_power_preference']}")
+    if app.get("cursor_blink_ease"):
+        extras.append(f"Cursor easing: {app['cursor_blink_ease']}")
+    if app.get("status_update_interval"):
+        extras.append(f"Status every {int(app['status_update_interval'])} ms")
     if app.get("enable_wayland") is not None:
         extras.append(f"Wayland: {'On' if app['enable_wayland'] else 'Off'}")
     if app.get("quick_select"):
@@ -450,6 +476,29 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--max-fps", type=int, metavar="FPS", help="Maximum rendering FPS (15-255, or 0 for default)")
     parser.add_argument("--animation-fps", type=int, metavar="FPS", help="Animation & cursor blink FPS (1-255, or 0 for default)")
+    parser.add_argument(
+        "--perf-profile",
+        choices=list(PERF_PROFILES),
+        help="Apply a performance profile: " + "; ".join(
+            f"{name} = {prof['label']}" for name, prof in PERF_PROFILES.items()
+        ) + ". Explicit flags in the same command win over the profile.",
+    )
+    parser.add_argument(
+        "--webgpu-power",
+        choices=["Default", "LowPower", "HighPerformance"],
+        help="GPU to use with front_end=WebGpu: LowPower (integrated) or HighPerformance (discrete)",
+    )
+    parser.add_argument(
+        "--cursor-blink-ease",
+        choices=["Default", *CURSOR_EASINGS],
+        help="Cursor blink easing (Constant = plain on/off, cheapest with animation FPS 1)",
+    )
+    parser.add_argument(
+        "--status-interval",
+        type=int,
+        metavar="MS",
+        help="Milliseconds between status bar updates (0 = default; Studio uses 5000)",
+    )
     parser.add_argument(
         "--wayland",
         action=argparse.BooleanOptionalAction,
@@ -623,6 +672,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # Collect appearance updates if any CLI font/window/scheme flags were provided
     app_updates: dict[str, object] = {}
+    if args.perf_profile:
+        app_updates.update(PERF_PROFILES[args.perf_profile]["settings"])
     if args.font:
         app_updates["font_family"] = args.font
     if args.weight:
@@ -669,6 +720,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         app_updates["max_fps"] = args.max_fps
     if args.animation_fps is not None:
         app_updates["animation_fps"] = args.animation_fps
+    if args.webgpu_power is not None:
+        app_updates["webgpu_power_preference"] = args.webgpu_power
+    if args.cursor_blink_ease is not None:
+        app_updates["cursor_blink_ease"] = args.cursor_blink_ease
+    if args.status_interval is not None:
+        app_updates["status_update_interval"] = args.status_interval
     if args.wayland is not None:
         app_updates["enable_wayland"] = args.wayland
     if args.quick_select is not None:
@@ -754,7 +811,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(failure_msg(err), file=sys.stderr)
             return 1
         summary_parts = [f"{k}={v}" for k, v in app_updates.items()]
-        print(f"{GREEN}{BOLD}✔ Configuration applied:{RESET} {', '.join(summary_parts)}")
+        profile_note = f" (performance profile: {PERF_PROFILES[args.perf_profile]['label']})" if args.perf_profile else ""
+        print(f"{GREEN}{BOLD}✔ Configuration applied{profile_note}:{RESET} {', '.join(summary_parts)}")
         mutated = True
 
     if args.web:

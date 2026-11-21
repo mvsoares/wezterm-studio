@@ -32,16 +32,21 @@ import wezterm_theme.fonts as fonts_mod
 from wezterm_theme.core import (
     MAX_PRE_RESTORE_BACKUPS,
     MAX_WEZTERM_LUA_BACKUPS,
+    PERF_PROFILES,
+    PERF_TUNING_KEYS,
     _backup_wezterm_lua,
     _find_tab_title_handlers,
     apply_appearance,
+    apply_perf_profile,
     apply_theme,
     backup_current_config,
+    detect_perf_profile,
     detect_performance_warnings,
     disable_conflicting_tab_handlers,
     export_preset,
     get_available_backups,
     get_current_state,
+    get_renderer_info,
     import_preset,
     init_wezterm_config,
     normalize_appearance_updates,
@@ -59,6 +64,7 @@ from wezterm_theme.paths import (
     get_platform_name,
     resolve_wezterm_paths,
 )
+from wezterm_theme.perf import benchmark_modules
 from wezterm_theme.server import RequestError, _address_family_for_host, _parse_strict_int, create_server
 from wezterm_theme.themes import (
     AI_AGENTS,
@@ -2158,6 +2164,231 @@ class ReviewFollowup142Tests(unittest.TestCase):
         )
         errors = [ln for ln in res.stderr.splitlines() if " ERROR " in ln]
         self.assertEqual(errors, [], f"Lua harness errors:\n{res.stderr}")
+
+
+class Performance143Tests(unittest.TestCase):
+    """v1.4.3: lighter generated Lua, performance profiles and rendering diagnostics."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self._tmp.name)
+        self._old_env = os.environ.get("WEZTERM_CONFIG_FILE")
+        self.cfg_path = self.tmp_path / "wezterm.lua"
+        os.environ["WEZTERM_CONFIG_FILE"] = str(self.cfg_path)
+
+    def tearDown(self) -> None:
+        if self._old_env is None:
+            os.environ.pop("WEZTERM_CONFIG_FILE", None)
+        else:
+            os.environ["WEZTERM_CONFIG_FILE"] = self._old_env
+        self._tmp.cleanup()
+
+    def _no_validation(self) -> mock._patch:
+        return mock.patch("wezterm_theme.core.validate_config", return_value=None)
+
+    def test_each_profile_applies_and_is_detected_as_itself(self) -> None:
+        for name, prof in PERF_PROFILES.items():
+            self.assertLessEqual(set(PERF_TUNING_KEYS), set(prof["settings"]), f"{name} must set every tuning key")
+        with self._no_validation():
+            self.assertTrue(apply_theme(get_theme_by_id(3), appearance_updates={"window_blur": 30})[0])
+            # Remote then Battery: Battery must leave the Software renderer, not keep it.
+            for name in ("remote", "battery", "smooth", "default"):
+                ok, msg = apply_perf_profile(name)
+                self.assertTrue(ok, msg)
+                self.assertEqual(detect_perf_profile(get_current_state()["appearance"]), name)
+                self.assertIn("already active", apply_perf_profile(name)[1])
+            self.assertFalse(apply_perf_profile("turbo")[0])
+        app = get_current_state()["appearance"]
+        self.assertIsNone(app["window_blur"], "battery/remote should have turned blur off")
+        for key in ("front_end", "max_fps", "animation_fps", "cursor_blink_ease", "status_update_interval"):
+            self.assertIsNone(app[key], key)
+
+    def test_new_settings_are_validated_and_emitted(self) -> None:
+        self.assertEqual(
+            normalize_appearance_updates({"webgpu_power_preference": "Default", "cursor_blink_ease": "", "status_update_interval": 0}),
+            {"webgpu_power_preference": None, "cursor_blink_ease": None, "status_update_interval": 0},
+        )
+        for bad in ({"cursor_blink_ease": "Bounce"}, {"webgpu_power_preference": "Turbo"}, {"status_update_interval": -1}):
+            with self.assertRaises(ValueError):
+                normalize_appearance_updates(bad)
+        app = {"webgpu_power_preference": "HighPerformance", "cursor_blink_ease": "Constant", "status_update_interval": 8000, "status_bar": True}
+        lua = generate_lua_for_theme(get_theme_by_id(3), appearance=app)
+        self.assertIn("config.webgpu_power_preference = 'HighPerformance'", lua)
+        self.assertIn("config.cursor_blink_ease_in = 'Constant'", lua)
+        self.assertIn("config.cursor_blink_ease_out = 'Constant'", lua)
+        self.assertLess(lua.index("config.status_update_interval = 8000"), lua.index("config.status_update_interval or 5000"))
+        if find_wezterm_cmd():
+            self.assertIsNone(validate_theme_lua(lua))
+
+    def test_loader_mode_stores_and_applies_new_settings(self) -> None:
+        (self.tmp_path / "defaults.json").write_text("{}\n", encoding="utf-8")
+        settings = self.tmp_path / "settings.json"
+        settings.write_text('{"font": {"size": 12}}\n', encoding="utf-8")
+        with self._no_validation():
+            ok, err = apply_appearance({"cursor_blink_ease": "Constant", "webgpu_power_preference": "LowPower", "status_update_interval": 8000})
+        self.assertTrue(ok, err)
+        data = json.loads(settings.read_text(encoding="utf-8"))
+        self.assertEqual(data["cursor"]["blink_ease"], "Constant")
+        self.assertEqual(data["performance"]["webgpu_power_preference"], "LowPower")
+        self.assertEqual(data["status"]["update_interval"], 8000)
+        self.assertEqual(data["font"]["size"], 12)
+        app = get_current_state()["appearance"]
+        self.assertEqual((app["cursor_blink_ease"], app["webgpu_power_preference"], app["status_update_interval"]), ("Constant", "LowPower", 8000))
+        module = (self.tmp_path / "tab_theme.lua").read_text(encoding="utf-8")
+        self.assertIn("config.cursor_blink_ease_in = 'Constant'", module)
+        self.assertIn("config.status_update_interval = 8000", module)
+
+        with self._no_validation():
+            self.assertTrue(apply_appearance({"cursor_blink_ease": "Default", "webgpu_power_preference": "Default", "status_update_interval": 0})[0])
+        data = json.loads(settings.read_text(encoding="utf-8"))
+        self.assertNotIn("blink_ease", data["cursor"])
+        self.assertNotIn("webgpu_power_preference", data["performance"])
+        self.assertNotIn("update_interval", data["status"])
+        self.assertNotIn("cursor_blink_ease_in", (self.tmp_path / "tab_theme.lua").read_text(encoding="utf-8"))
+
+    def test_renderer_info_and_new_warnings(self) -> None:
+        self.assertEqual(get_renderer_info(appearance={}), {"front_end": "OpenGL", "source": "default"})
+        self.cfg_path.write_text("local config = {}\nconfig.front_end = 'WebGpu'\nreturn config\n", encoding="utf-8")
+        self.assertEqual(get_renderer_info(appearance={}), {"front_end": "WebGpu", "source": "wezterm.lua"})
+        self.assertEqual(get_renderer_info(appearance={"front_end": "Software"})["source"], "studio")
+
+        env = {k: v for k, v in os.environ.items() if k != "WAYLAND_DISPLAY"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            def warns(app: dict) -> str:
+                return " | ".join(detect_performance_warnings(appearance=app))
+
+            self.assertIn("scrollback_lines=200,000", warns({"scrollback_lines": 200_000}))
+            self.assertIn("status_update_interval=500", warns({"status_update_interval": 500}))
+            self.assertEqual(warns({"webgpu_power_preference": "HighPerformance"}), "")  # wezterm.lua sets WebGpu
+            self.assertIn("only takes effect", warns({"webgpu_power_preference": "HighPerformance", "front_end": "OpenGL"}))
+            self.assertIn("keep the GPU compositing", warns({"animation_fps": 1, "window_blur": 20}))
+            self.assertEqual(warns({"max_fps": 120}), "")
+            os.environ["WAYLAND_DISPLAY"] = "wayland-0"
+            self.assertIn("ignored when WezTerm runs natively on Wayland", warns({"max_fps": 120}))
+            self.assertEqual(warns({"max_fps": 120, "enable_wayland": False}), "")
+
+    def test_cli_profile_flag_doctor_and_status(self) -> None:
+        with self._no_validation(), redirect_stdout(io.StringIO()):
+            self.assertEqual(cli_main(["-s", "3"]), 0)
+            self.assertEqual(cli_main(["--perf-profile", "battery", "--max-fps", "45"]), 0)
+        app = get_current_state()["appearance"]
+        self.assertEqual(app["max_fps"], 45, "an explicit flag must win over the profile")
+        self.assertEqual(app["animation_fps"], 1)
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            self.assertEqual(cli_main(["doctor", "--perf"]), 0)
+        out = buf.getvalue()
+        self.assertIn("Renderer:", out)
+        self.assertIn("Perf Profile:", out)
+        self.assertIn("Benchmark:", out)
+        if find_wezterm_cmd():
+            self.assertIn("process/cwd lookups", out)
+
+    def test_http_performance_routes(self) -> None:
+        with self._no_validation():
+            self.assertTrue(apply_theme(get_theme_by_id(3))[0])
+        httpd, port = create_server("127.0.0.1", 0)
+        port = httpd.server_address[1]
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{port}"
+        try:
+            html = urllib.request.urlopen(base + "/").read().decode()
+            token = html.split('name="studio-token" content="', 1)[1].split('"', 1)[0]
+
+            def post(route: str, body: dict, with_token: bool = True) -> tuple[int, dict]:
+                headers = {"Content-Type": "application/json", **({"X-Studio-Token": token} if with_token else {})}
+                req = urllib.request.Request(base + route, data=json.dumps(body).encode(), headers=headers, method="POST")
+                try:
+                    with urllib.request.urlopen(req) as res:
+                        return res.status, json.loads(res.read())
+                except urllib.error.HTTPError as exc:
+                    with exc:
+                        return exc.code, json.loads(exc.read())
+
+            boot = json.loads(urllib.request.urlopen(base + "/api/bootstrap").read())
+            self.assertEqual([p["id"] for p in boot["perf"]["profiles"]], list(PERF_PROFILES))
+            with self._no_validation():
+                status, body = post("/api/perf-profile", {"profile": "remote"})
+            self.assertEqual(status, 200, body)
+            self.assertEqual(body["perf"]["active_profile"], "remote")
+            self.assertEqual(body["perf"]["renderer"], {"front_end": "Software", "source": "studio"})
+            self.assertEqual(post("/api/perf-profile", {"profile": "turbo"})[0], 400)
+            self.assertEqual(post("/api/perf-profile", {"profile": "default"}, with_token=False)[0], 403)
+            self.assertEqual(post("/api/perf-benchmark", {}, with_token=False)[0], 403)
+            status, body = post("/api/perf-benchmark", {})
+            self.assertEqual(status, 200)
+            if find_wezterm_cmd():
+                self.assertTrue(body["ok"], body)
+                self.assertIn("process/cwd lookups", body["lines"][0])
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+    def test_benchmark_regression_limits_for_every_style(self) -> None:
+        if not find_wezterm_cmd():
+            self.skipTest("wezterm binary not installed")
+        modules = []
+        for theme in THEMES:
+            style = theme.get("style", "pills")
+            mod = self.tmp_path / f"bench_{style}.lua"
+            if mod.exists():
+                continue
+            mod.write_text(
+                generate_lua_for_theme(theme, appearance={"status_bar": True, "agent_indicators": True, "ssh_alert": True}),
+                encoding="utf-8",
+            )
+            modules.append(mod)
+        results = benchmark_modules(modules, updates=20)
+        self.assertEqual(len(results), len(modules))
+        for res in results:
+            name = Path(res["module"]).stem
+            self.assertNotIn("error", res, name)
+            # One process and one cwd lookup per tab per update, never per call.
+            self.assertLessEqual(res["lazy_reads"], 2 * res["tabs"], name)
+            self.assertLess(res["tab_bar_ms"], 10.0, name)
+            self.assertLessEqual(res["status_queries"], res["tabs"], name)
+
+    def test_pane_cache_rereads_when_the_title_changes(self) -> None:
+        wz = find_wezterm_cmd()
+        if not wz:
+            self.skipTest("wezterm binary not installed")
+        mod = self.tmp_path / "mod_cache.lua"
+        mod.write_text(generate_lua_for_theme(get_theme_by_id(3)), encoding="utf-8")
+        harness = self.tmp_path / "harness_cache.lua"
+        harness.write_text(
+            "\n".join([
+                "local real_wz = require 'wezterm'",
+                "local fmt_cb",
+                "local reads = 0",
+                "local mock = setmetatable({",
+                "  GLOBAL = {},",
+                "  on = function(ev, cb) if ev == 'format-tab-title' then fmt_cb = cb end end,",
+                "  time = { now = function() return { format = function() return '1000.000' end } end },",
+                "}, { __index = real_wz })",
+                f"dofile({_lua_str(mod.as_posix())}).apply({{}}, mock)",
+                "local fields = { pane_id = 7, title = 'zsh', current_working_dir = 'file:///home/dev/alpha', foreground_process_name = '/bin/zsh' }",
+                "local pane = setmetatable({}, { __index = function(_, k)",
+                "  if k == 'current_working_dir' or k == 'foreground_process_name' then reads = reads + 1 end",
+                "  return fields[k]",
+                "end })",
+                "local tab = { tab_index = 0, is_active = true, tab_title = '', panes = { {} }, active_pane = pane }",
+                "local out1 = fmt_cb(tab, { tab }, tab.panes, {}, false, 40)",
+                "local out2 = fmt_cb(tab, { tab }, tab.panes, {}, false, 40)",
+                "assert(reads == 2, 'second call in the same update must reuse the lookups, reads=' .. reads)",
+                "assert(tostring(out1):find('alpha', 1, true) and tostring(out2):find('alpha', 1, true), 'missing dir')",
+                "-- Same instant, but the shell changed the title after a cd: the cache must not be used",
+                "fields.title = 'zsh: beta'",
+                "fields.current_working_dir = 'file:///home/dev/beta'",
+                "local out3 = fmt_cb(tab, { tab }, tab.panes, {}, false, 40)",
+                "assert(reads == 4 and tostring(out3):find('beta', 1, true), 'stale cwd after a title change: ' .. tostring(out3))",
+                "return real_wz.config_builder()",
+            ]),
+            encoding="utf-8",
+        )
+        res = subprocess.run([*wz, "--config-file", str(harness), "ls-fonts", "--text", "a"], capture_output=True, text=True, timeout=30)
+        errors = [ln for ln in res.stderr.splitlines() if " ERROR " in ln]
+        self.assertEqual(errors, [], res.stderr)
 
 
 if __name__ == "__main__":

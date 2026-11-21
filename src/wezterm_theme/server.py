@@ -30,8 +30,10 @@ from typing import Any
 from . import __version__
 from .core import (
     _KEEP,
+    PERF_PROFILES,
     VALIDATION_SKIPPED_MSG,
     apply_appearance,
+    apply_perf_profile,
     apply_theme,
     backup_current_config,
     clear_session_snapshot,
@@ -39,6 +41,7 @@ from .core import (
     export_preset,
     get_available_backups,
     get_current_state,
+    get_perf_overview,
     get_session_snapshot_info,
     import_preset,
     init_wezterm_config,
@@ -49,6 +52,7 @@ from .core import (
 )
 from .fonts import get_color_scheme_palettes, get_installed_fonts
 from .paths import has_gui_display, system_summary
+from .perf import BenchmarkError, benchmark_current, format_benchmark
 from .themes import (
     CATEGORIES,
     DEFAULT_SYMBOLS,
@@ -255,6 +259,7 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 "version": __version__,
                 "state": st,
                 "warnings": _studio_warnings(st.get("appearance")),
+                "perf": get_perf_overview(appearance=st.get("appearance")),
                 "session": get_session_snapshot_info(),
                 "system": system_summary(),
                 "themes": THEMES,
@@ -312,6 +317,7 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 "msg": msg,
                 "state": st,
                 "warnings": _studio_warnings(st.get("appearance")),
+                "perf": get_perf_overview(appearance=st.get("appearance")),
             })
             return
 
@@ -348,6 +354,7 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 "msg": f"Theme #{theme['id']:02d} ({theme['name']}) applied!",
                 "state": new_st,
                 "warnings": _studio_warnings(new_st.get("appearance")),
+                "perf": get_perf_overview(appearance=new_st.get("appearance")),
             })
             return
 
@@ -372,7 +379,33 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 "msg": label,
                 "state": new_st,
                 "warnings": _studio_warnings(new_st.get("appearance")),
+                "perf": get_perf_overview(appearance=new_st.get("appearance")),
             })
+            return
+
+        if route == "/api/perf-profile":
+            name = body.get("profile")
+            if name not in PERF_PROFILES:
+                raise RequestError(400, f"'profile' must be one of {', '.join(PERF_PROFILES)}.")
+            ok, msg = apply_perf_profile(name)
+            new_st = get_current_state()
+            self._send_json({
+                "ok": ok,
+                "msg": msg,
+                "state": new_st,
+                "warnings": _studio_warnings(new_st.get("appearance")),
+                "perf": get_perf_overview(appearance=new_st.get("appearance")),
+            })
+            return
+
+        if route == "/api/perf-benchmark":
+            # POST (token-protected): it starts a wezterm process.
+            try:
+                result = benchmark_current()
+            except BenchmarkError as exc:
+                self._send_json({"ok": False, "msg": f"Benchmark skipped: {exc}"})
+                return
+            self._send_json({"ok": True, "msg": "Benchmark finished.", "result": result, "lines": format_benchmark(result)})
             return
 
         if route == "/api/backup":
@@ -391,6 +424,7 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 "msg": msg,
                 "state": new_st,
                 "warnings": _studio_warnings(new_st.get("appearance")),
+                "perf": get_perf_overview(appearance=new_st.get("appearance")),
                 "backups": _serialize_backups(),
             })
             return
@@ -415,6 +449,7 @@ class StudioRequestHandler(BaseHTTPRequestHandler):
                 "msg": msg,
                 "state": new_st,
                 "warnings": _studio_warnings(new_st.get("appearance")),
+                "perf": get_perf_overview(appearance=new_st.get("appearance")),
             })
             return
 

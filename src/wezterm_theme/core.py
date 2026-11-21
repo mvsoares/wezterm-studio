@@ -16,6 +16,7 @@ import copy
 import functools
 import json
 import math
+import os
 import re
 import shutil
 import subprocess
@@ -28,6 +29,7 @@ from typing import Any, Callable, TypeVar
 
 from .paths import atomic_write_text, find_wezterm_cmd, get_platform_name, resolve_wezterm_paths
 from .themes import (
+    CURSOR_EASINGS,
     THEMES,
     _lua_long_str,
     generate_lua_for_theme,
@@ -73,6 +75,9 @@ DEFAULT_APPEARANCE: dict[str, Any] = {
     "front_end": None,
     "max_fps": None,
     "animation_fps": None,
+    "webgpu_power_preference": None,
+    "cursor_blink_ease": None,
+    "status_update_interval": None,
     "enable_wayland": None,
     "quick_select": None,
     "hide_tab_bar_if_only_one_tab": None,
@@ -162,7 +167,7 @@ def _backup_wezterm_lua(paths: dict[str, Path], reason: str) -> Path:
 _APPEARANCE_STR_KEYS = {
     "font_family", "font_weight", "tab_font_family", "tab_font_weight", "color_scheme",
     "color_scheme_light", "window_decorations", "cursor_style", "audible_bell", "editor_cmd",
-    "win32_backdrop", "front_end",
+    "win32_backdrop", "front_end", "webgpu_power_preference", "cursor_blink_ease",
 }
 _APPEARANCE_BOOL_KEYS = {
     "font_ligatures", "font_fallback", "oled_black", "background_gradient", "accent_border",
@@ -186,6 +191,7 @@ _APPEARANCE_INT_RANGES: dict[str, tuple[int, int]] = {
     # WezTerm stores both as u8; the UI suggests 15-240 but anything WezTerm accepts is kept.
     "max_fps": (0, 255),
     "animation_fps": (0, 255),
+    "status_update_interval": (0, 600_000),
     "window_padding": (0, 1000),
 }
 _APPEARANCE_ENUM_VALUES: dict[str, set[str]] = {
@@ -200,6 +206,8 @@ _APPEARANCE_ENUM_VALUES: dict[str, set[str]] = {
         "SteadyBar",
     },
     "audible_bell": {"SystemBeep", "Disabled"},
+    "webgpu_power_preference": {"LowPower", "HighPerformance"},
+    "cursor_blink_ease": set(CURSOR_EASINGS),
 }
 _VALID_WINDOW_DECORATION_TOKENS = {
     "NONE",
@@ -225,8 +233,12 @@ _RESETTABLE_STR_KEYS = {
     "win32_backdrop",
     "cursor_style",
     "audible_bell",
+    "webgpu_power_preference",
+    "cursor_blink_ease",
 }
 _RESET_SENTINELS = {"Default", "Auto", "off", "none"}
+# Settings a loader-mode module applies itself (the JSON loader predates them).
+_MODULE_PERF_KEYS = ("webgpu_power_preference", "cursor_blink_ease", "status_update_interval")
 _MAX_STR_LEN = 256
 
 
@@ -526,6 +538,9 @@ def _extract_loader_appearance(merged: dict[str, Any], settings_only: dict[str, 
     app["front_end"] = pf.get("front_end") or None
     app["max_fps"] = pf.get("max_fps")
     app["animation_fps"] = pf.get("animation_fps")
+    app["webgpu_power_preference"] = pf.get("webgpu_power_preference") or None
+    app["cursor_blink_ease"] = cu.get("blink_ease") or None
+    app["status_update_interval"] = st_sec.get("update_interval") or None
     if d.get("enable_wayland") is not None:
         app["enable_wayland"] = bool(d.get("enable_wayland"))
     if hl.get("quick_select") is not None:
@@ -573,39 +588,61 @@ def detect_user_config_conflicts(paths: dict[str, Path] | None = None) -> list[s
 
 
 _FRONT_END_VALUE = re.compile(r"""\s*['"](WebGpu|OpenGL|Software)['"]""")
+# WezTerm's own front_end when nothing sets it (the WebGpu default was reverted).
+WEZTERM_DEFAULT_FRONT_END = "OpenGL"
+
+
+def _user_config_perf_settings(cfg_file: Path) -> dict[str, Any]:
+    """front_end / animation_fps assigned in the user's own wezterm.lua (last one wins)."""
+    found: dict[str, Any] = {}
+    if not cfg_file.is_file():
+        return found
+    try:
+        raw = cfg_file.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return found
+    masked = _lua_code_mask(raw)
+    # Find the assignment in real code (masked), but read the string value from `raw`:
+    # the mask blanks string literals, quotes included.
+    for m_fe in re.finditer(r"\bfront_end\s*=(?!=)", masked):
+        m_val = _FRONT_END_VALUE.match(raw, m_fe.end())
+        if m_val:
+            found["front_end"] = m_val.group(1)
+    for m_afps in re.finditer(r"\banimation_fps\s*=\s*(\d+)", masked):
+        found["animation_fps"] = int(m_afps.group(1))
+    return found
+
+
+def get_renderer_info(
+    paths: dict[str, Path] | None = None,
+    appearance: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """Return the effective front_end and where it comes from: studio, wezterm.lua or default."""
+    paths = paths or resolve_wezterm_paths()
+    app = appearance if appearance is not None else get_current_state(paths).get("appearance", {})
+    if app.get("front_end"):
+        return {"front_end": str(app["front_end"]), "source": "studio"}
+    user_fe = _user_config_perf_settings(paths["config_file"]).get("front_end")
+    if user_fe:
+        return {"front_end": user_fe, "source": "wezterm.lua"}
+    return {"front_end": WEZTERM_DEFAULT_FRONT_END, "source": "default"}
 
 
 def detect_performance_warnings(
     paths: dict[str, Path] | None = None,
     appearance: dict[str, Any] | None = None,
 ) -> list[str]:
-    """Inspect user's wezterm.lua and Studio appearance for CPU-heavy rendering combinations."""
+    """Inspect user's wezterm.lua and Studio appearance for costly rendering combinations."""
     paths = paths or resolve_wezterm_paths()
     app = appearance if appearance is not None else get_current_state(paths).get("appearance", {})
 
-    fe = app.get("front_end")
-    anim_fps = app.get("animation_fps")
+    user_cfg = _user_config_perf_settings(paths["config_file"])
+    fe = app.get("front_end") or user_cfg.get("front_end")
+    anim_fps = app.get("animation_fps") if app.get("animation_fps") is not None else user_cfg.get("animation_fps")
     grad = bool(app.get("background_gradient"))
     blur = int(app.get("window_blur") or 0)
-
-    cfg_file = paths["config_file"]
-    if cfg_file.is_file():
-        try:
-            raw = cfg_file.read_text(encoding="utf-8", errors="ignore")
-            masked = _lua_code_mask(raw)
-            if not fe:
-                # Find the assignment in real code (masked), but read the string value from
-                # `raw`: the mask blanks string literals, quotes included.
-                for m_fe in re.finditer(r"\bfront_end\s*=(?!=)", masked):
-                    m_val = _FRONT_END_VALUE.match(raw, m_fe.end())
-                    if m_val:
-                        fe = m_val.group(1)
-            if anim_fps is None:
-                m_afps = re.search(r"\banimation_fps\s*=\s*(\d+)", masked)
-                if m_afps:
-                    anim_fps = int(m_afps.group(1))
-        except Exception:
-            pass
+    opacity = app.get("window_opacity")
+    translucent = opacity is not None and float(opacity) < 1.0
 
     warnings: list[str] = []
     if fe == "Software":
@@ -620,7 +657,162 @@ def detect_performance_warnings(
                 "front_end='Software' combined with Oklab gradient or window blur renders on CPU; "
                 "prefer OpenGL/WebGpu when using backdrop effects."
             )
+    elif anim_fps is not None and int(anim_fps) <= 1 and (grad or blur > 0 or translucent):
+        warnings.append(
+            "Blur, transparency and the background gradient keep the GPU compositing every frame; "
+            "turn them off too if you are saving battery."
+        )
+    if app.get("webgpu_power_preference") == "HighPerformance" and fe != "WebGpu":
+        warnings.append("webgpu_power_preference only takes effect with front_end='WebGpu'.")
+    if app.get("max_fps") and os.environ.get("WAYLAND_DISPLAY") and app.get("enable_wayland") is not False:
+        warnings.append(
+            "max_fps is ignored when WezTerm runs natively on Wayland (the compositor paces frames); "
+            "it only applies under X11/XWayland."
+        )
+    interval = app.get("status_update_interval")
+    if interval and int(interval) < 1000:
+        warnings.append(
+            f"status_update_interval={int(interval)} ms runs the status bar Lua more often than "
+            "WezTerm's 1000 ms default."
+        )
+    scrollback = app.get("scrollback_lines")
+    if scrollback and int(scrollback) > 100_000:
+        warnings.append(
+            f"scrollback_lines={int(scrollback):,} keeps that many lines in memory for every pane; "
+            "10,000-50,000 is usually enough."
+        )
     return warnings
+
+
+# ── Performance profiles ─────────────────────────────────────────────────────
+# A profile is a shortcut that writes ordinary appearance settings (previewed before it
+# is applied). Nothing marks a profile as active, so every value stays editable on its
+# own, and the automatic backup taken by each apply can undo it.
+PERF_TUNING_KEYS = (
+    "front_end",
+    "webgpu_power_preference",
+    "max_fps",
+    "animation_fps",
+    "cursor_blink_ease",
+    "status_update_interval",
+)
+_NO_GPU_EFFECTS = {"window_blur": None, "background_gradient": None, "window_opacity": None}
+PERF_PROFILES: dict[str, dict[str, Any]] = {
+    "default": {
+        "label": "Default",
+        "description": "WezTerm's own renderer, frame rates, cursor easing and status interval. "
+        "Visual effects are left as they are.",
+        "settings": dict.fromkeys(PERF_TUNING_KEYS),
+    },
+    "battery": {
+        "label": "Battery saver",
+        "description": "WezTerm's default GPU renderer at 30 FPS, no easing animations, status bar "
+        "every 10 s, and no blur, transparency or gradient.",
+        "settings": {
+            "front_end": None,
+            "webgpu_power_preference": None,
+            "max_fps": 30,
+            "animation_fps": 1,
+            "cursor_blink_ease": "Constant",
+            "status_update_interval": 10_000,
+            **_NO_GPU_EFFECTS,
+        },
+    },
+    "smooth": {
+        "label": "Max smoothness",
+        "description": "WebGpu on the discrete GPU at 120 FPS with 60 FPS animations. "
+        "Uses more power; if WebGpu misbehaves on your driver, switch front_end back.",
+        "settings": {
+            "front_end": "WebGpu",
+            "webgpu_power_preference": "HighPerformance",
+            "max_fps": 120,
+            "animation_fps": 60,
+            "cursor_blink_ease": None,
+            "status_update_interval": None,
+        },
+    },
+    "remote": {
+        "label": "Remote / no GPU",
+        "description": "Software (CPU) rendering for remote desktops, VMs and broken GPU drivers: "
+        "30 FPS, no animations, no backdrop effects.",
+        "settings": {
+            "front_end": "Software",
+            "webgpu_power_preference": None,
+            "max_fps": 30,
+            "animation_fps": 1,
+            "cursor_blink_ease": "Constant",
+            "status_update_interval": 10_000,
+            **_NO_GPU_EFFECTS,
+        },
+    },
+}
+
+
+def _same_setting(a: Any, b: Any) -> bool:
+    if a is None or b is None:
+        return a is None and b is None
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool):
+        return float(a) == float(b)
+    return a == b
+
+
+def perf_profile_changes(name: str, appearance: dict[str, Any]) -> list[dict[str, Any]]:
+    """Settings `name` would change, as [{key, from, to}]; raises ValueError for an unknown name."""
+    if name not in PERF_PROFILES:
+        raise ValueError(f"Unknown performance profile '{name}' (choose {', '.join(PERF_PROFILES)}).")
+    return [
+        {"key": key, "from": appearance.get(key), "to": value}
+        for key, value in PERF_PROFILES[name]["settings"].items()
+        if not _same_setting(appearance.get(key), value)
+    ]
+
+
+def detect_perf_profile(appearance: dict[str, Any]) -> str:
+    """The profile whose settings all match `appearance`, or "custom".
+
+    Every profile sets all PERF_TUNING_KEYS, so at most one matches; should two ever
+    overlap, the one that sets more keys wins.
+    """
+    matches = [name for name in PERF_PROFILES if not perf_profile_changes(name, appearance)]
+    if not matches:
+        return "custom"
+    return max(matches, key=lambda name: len(PERF_PROFILES[name]["settings"]))
+
+
+def get_perf_overview(paths: dict[str, Path] | None = None, appearance: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Everything the Studio's Performance card shows, except the benchmark."""
+    paths = paths or resolve_wezterm_paths()
+    app = appearance if appearance is not None else get_current_state(paths).get("appearance", {})
+    return {
+        "renderer": get_renderer_info(paths, app),
+        "active_profile": detect_perf_profile(app),
+        "profiles": [
+            {
+                "id": name,
+                "label": prof["label"],
+                "description": prof["description"],
+                "changes": perf_profile_changes(name, app),
+            }
+            for name, prof in PERF_PROFILES.items()
+        ],
+    }
+
+
+@_serialized
+def apply_perf_profile(name: str, paths: dict[str, Path] | None = None) -> tuple[bool, str]:
+    """Write a performance profile's settings through the normal appearance path."""
+    paths = paths or resolve_wezterm_paths()
+    try:
+        changes = perf_profile_changes(name, get_current_state(paths)["appearance"])
+    except ValueError as exc:
+        return False, str(exc)
+    label = PERF_PROFILES[name]["label"]
+    if not changes:
+        return True, f"Performance profile '{label}' is already active."
+    ok, err = apply_appearance({c["key"]: c["to"] for c in changes}, paths=paths)
+    if not ok:
+        return False, f"Performance profile '{label}' could not be applied: {err}"
+    return True, f"Performance profile '{label}' applied ({len(changes)} setting(s) changed)."
 
 
 def _session_json_path(paths: dict[str, Path]) -> Path:
@@ -1462,8 +1654,13 @@ def _sync_loader_settings(
             if "accent_border" in appearance_updates and appearance_updates["accent_border"] is not None:
                 w["accent_border"] = bool(appearance_updates["accent_border"])
 
-        if "cursor_style" in appearance_updates or "cursor_blink_rate" in appearance_updates:
+        if "cursor_style" in appearance_updates or "cursor_blink_rate" in appearance_updates or "cursor_blink_ease" in appearance_updates:
             cu = data.setdefault("cursor", {})
+            if "cursor_blink_ease" in appearance_updates:
+                if appearance_updates["cursor_blink_ease"]:
+                    cu["blink_ease"] = str(appearance_updates["cursor_blink_ease"])
+                else:
+                    cu.pop("blink_ease", None)
             if "cursor_style" in appearance_updates:
                 if appearance_updates["cursor_style"]:
                     cu["style"] = str(appearance_updates["cursor_style"])
@@ -1484,8 +1681,14 @@ def _sync_loader_settings(
             or "front_end" in appearance_updates
             or "max_fps" in appearance_updates
             or "animation_fps" in appearance_updates
+            or "webgpu_power_preference" in appearance_updates
         ):
             pf = data.setdefault("performance", {})
+            if "webgpu_power_preference" in appearance_updates:
+                if appearance_updates["webgpu_power_preference"]:
+                    pf["webgpu_power_preference"] = str(appearance_updates["webgpu_power_preference"])
+                else:
+                    pf.pop("webgpu_power_preference", None)
             if "scrollback_lines" in appearance_updates and appearance_updates.get("scrollback_lines") is not None:
                 pf["scrollback_lines"] = int(appearance_updates["scrollback_lines"])
             if "front_end" in appearance_updates:
@@ -1534,6 +1737,12 @@ def _sync_loader_settings(
         if "status_bar" in appearance_updates and appearance_updates["status_bar"] is not None:
             st_sec = data.setdefault("status", {})
             st_sec["enabled"] = bool(appearance_updates["status_bar"])
+        if "status_update_interval" in appearance_updates:
+            st_sec = data.setdefault("status", {})
+            if appearance_updates["status_update_interval"]:
+                st_sec["update_interval"] = int(appearance_updates["status_update_interval"])
+            else:
+                st_sec.pop("update_interval", None)
         if "agent_indicators" in appearance_updates and appearance_updates["agent_indicators"] is not None:
             tabs["agent_indicators"] = bool(appearance_updates["agent_indicators"])
             st_sec = data.setdefault("status", {})
@@ -1793,6 +2002,9 @@ def apply_theme(
             if "use_fancy_tab_bar" in appearance_updates:
                 fv = appearance_updates["use_fancy_tab_bar"]
                 cur_app["use_fancy_tab_bar"] = None if (fv is None or fv == "auto") else bool(fv)
+            for k in _MODULE_PERF_KEYS:
+                if k in appearance_updates:
+                    cur_app[k] = appearance_updates[k] or None
         loader_app: dict[str, Any] = {
             "_loader_only": True,
             "agent_indicators": cur_app.get("agent_indicators"),
@@ -1800,6 +2012,7 @@ def apply_theme(
             "command_palette": cur_app.get("command_palette"),
             "workspace_switcher": cur_app.get("workspace_switcher"),
             "session_manager": cur_app.get("session_manager"),
+            **{k: cur_app.get(k) for k in _MODULE_PERF_KEYS},
         }
         if isinstance(cur_app.get("use_fancy_tab_bar"), bool):
             loader_app["use_fancy_tab_bar"] = cur_app["use_fancy_tab_bar"]
@@ -1839,7 +2052,7 @@ def apply_theme(
         for k, v in appearance_updates.items():
             if k in _APPEARANCE_AUTO_BOOL_KEYS and v == "auto":
                 merged_app[k] = None
-            elif k in ("tab_max_width", "window_blur", "max_fps", "animation_fps") and not v:
+            elif k in ("tab_max_width", "window_blur", "max_fps", "animation_fps", "status_update_interval") and not v:
                 merged_app[k] = None
             else:
                 merged_app[k] = v

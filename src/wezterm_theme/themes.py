@@ -1808,6 +1808,7 @@ def _emit_appearance_lua(
         lines.append(f"  config.max_fps = {max(15, min(255, int(appearance['max_fps'])))}")
     if appearance.get("animation_fps") is not None and int(appearance["animation_fps"] or 0) > 0:
         lines.append(f"  config.animation_fps = {max(1, min(255, int(appearance['animation_fps'])))}")
+    lines.extend(_emit_perf_tuning_lua(appearance))
     if appearance.get("enable_wayland") is not None:
         lines.append(f"  config.enable_wayland = {'true' if appearance['enable_wayland'] else 'false'}")
 
@@ -1862,6 +1863,27 @@ def _emit_appearance_lua(
         ])
 
     lines.append("")
+    return lines
+
+
+# Easing functions WezTerm accepts for cursor_blink_ease_in/out ("Constant" turns the
+# fade into a plain on/off switch, which WezTerm recommends with animation_fps = 1).
+CURSOR_EASINGS = ("Linear", "Ease", "EaseIn", "EaseOut", "EaseInOut", "Constant")
+
+
+def _emit_perf_tuning_lua(appearance: dict[str, Any]) -> list[str]:
+    """WebGPU adapter preference, cursor blink easing and the update-status interval."""
+    lines: list[str] = []
+    power = appearance.get("webgpu_power_preference")
+    if power in ("LowPower", "HighPerformance"):
+        lines.append(f"  config.webgpu_power_preference = {_lua_str(power)}")
+    ease = appearance.get("cursor_blink_ease")
+    if ease in CURSOR_EASINGS:
+        lines.append(f"  config.cursor_blink_ease_in = {_lua_str(ease)}")
+        lines.append(f"  config.cursor_blink_ease_out = {_lua_str(ease)}")
+    interval = appearance.get("status_update_interval")
+    if interval:
+        lines.append(f"  config.status_update_interval = {int(interval)}")
     return lines
 
 
@@ -2705,6 +2727,10 @@ def generate_lua_for_theme(
         lua.append("")
 
     is_loader_only = bool(appearance and appearance.get("_loader_only"))
+    if is_loader_only:
+        # Loader-mode modules carry tab settings only; these performance settings come
+        # from wezterm-theme itself, so the module applies them too.
+        lua.extend(_emit_perf_tuning_lua(appearance))
     if appearance and not is_loader_only:
         lua.extend(_emit_appearance_lua(appearance, bg_bar=bg_bar, accent_color=palette[0]["bg"]))
         if appearance.get("status_bar"):
@@ -2783,10 +2809,90 @@ def generate_lua_for_theme(
         "    return base_c",
         "  end",
         "",
+        "  -- foreground_process_name and current_working_dir are computed on access and can",
+        "  -- be costly, while format-tab-title runs twice per tab on every tab-bar update.",
+        "  -- Reuse them for the same pane and title within one update (50 ms), so each pane",
+        "  -- is queried once per update; a title change (cd, new command) always re-reads.",
+        "  local function _wt_now()",
+        "    local ok, v = pcall(function() return tonumber(wezterm.time.now():format('%s%.3f')) end)",
+        "    return (ok and v) or os.time()",
+        "  end",
+        "  -- Small caches that start over once they hold 256 entries.",
+        "  local function _wt_cache() return { data = {}, n = 0 } end",
+        "  local function _wt_cache_set(c, key, value)",
+        "    if c.data[key] == nil then",
+        "      c.n = c.n + 1",
+        "      if c.n > 256 then c.data, c.n = {}, 1 end",
+        "    end",
+        "    c.data[key] = value",
+        "  end",
+        "  local _wt_pane_cache = _wt_cache()",
+        "  local function pane_proc_and_cwd(pane)",
+        "    local id = pane.pane_id",
+        "    local title = pane.title or ''",
+        "    local now = _wt_now()",
+        "    local e = id ~= nil and _wt_pane_cache.data[id] or nil",
+        "    if e and e.title == title and (now - e.t) < 0.05 then return e.fg, e.cwd end",
+        "    local fg = pane.foreground_process_name or ''",
+        "    local cwd = pane.current_working_dir",
+        "    if id ~= nil then _wt_cache_set(_wt_pane_cache, id, { t = now, title = title, fg = fg, cwd = cwd }) end",
+        "    return fg, cwd",
+        "  end",
+        "  local _wt_agent_memo = _wt_cache()",
+        "  local function hay_has_agent(hay)",
+        "    local hit = _wt_agent_memo.data[hay]",
+        "    if hit == nil then",
+        "      hit = false",
+        "      for ag, _ in pairs(ai_agents) do",
+        "        if hay:find('%f[%w]' .. ag .. '%f[%W]') then hit = true; break end",
+        "      end",
+        "      _wt_cache_set(_wt_agent_memo, hay, hit)",
+        "    end",
+        "    return hit",
+        "  end",
+        "",
+        "  local function pane_cmdline(pane)",
+        "    local uv = pane.user_vars or {}",
+        "    return uv.WEZTERM_PROG or uv.WEZTERM_CMD or uv.cmd or '', uv",
+        "  end",
+        "  local function pane_process(pane, uv, fg)",
+        "    local uv_cmd = uv.cmd or uv.WEZTERM_CMD or ''",
+        "    if uv_cmd == '' and uv.WEZTERM_PROG and uv.WEZTERM_PROG ~= '' then",
+        "      local first_tok = uv.WEZTERM_PROG:match('^%s*(%S+)') or ''",
+        "      uv_cmd = first_tok:match('([^/\\\\]+)$') or first_tok",
+        "    end",
+        "    local process = uv_cmd ~= '' and uv_cmd or (fg:match('([^/\\\\]+)$') or '')",
+        "    process = process:gsub('%.[eE][xX][eE]$', '')",
+        "    if idle_shells[process:lower()] then",
+        "      process = ''",
+        "    end",
+        "    return process",
+        "  end",
+        "  local function pane_ssh_level(pane, process, cmdline)",
+        "    if not ENABLE_SSH_ALERT then return nil end",
+        "    local p_low = process:lower()",
+        "    local dom = (pane.domain_name or ''):lower()",
+        "    if p_low == 'ssh' or p_low == 'mosh' or p_low == 'mosh-client' or (dom ~= '' and dom ~= 'local' and dom ~= 'unix' and dom:find('ssh')) then",
+        "      local low_cmd = (cmdline .. ' ' .. dom .. ' ' .. (pane.title or '')):lower()",
+        "      if low_cmd:find('prod') or low_cmd:find('prd') or low_cmd:find('root@') then",
+        "        return 'prod'",
+        "      end",
+        "      return 'ssh'",
+        "    end",
+        "    return nil",
+        "  end",
+        "  -- Danger tint of a neighbour tab (Powerline separators) without formatting its title.",
+        "  local function tab_ssh_level(tab)",
+        "    local pane = tab.active_pane",
+        "    local cmdline, uv = pane_cmdline(pane)",
+        "    local fg = pane_proc_and_cwd(pane)",
+        "    return pane_ssh_level(pane, pane_process(pane, uv, fg), cmdline)",
+        "  end",
+        "",
         "  local function get_title_info(tab)",
         "    local pane = tab.active_pane",
         "    local index = tab.tab_index + 1",
-        "    local cwd_uri = pane.current_working_dir",
+        "    local fg, cwd_uri = pane_proc_and_cwd(pane)",
         "    local dir = '~'",
         "    if cwd_uri then",
         "      local cwd = type(cwd_uri) == 'string' and cwd_uri or (cwd_uri.file_path or '')",
@@ -2795,40 +2901,15 @@ def generate_lua_for_theme(
         "        dir = cwd:match('([^/]+)$') or cwd",
         "      end",
         "    end",
-        "    local uv = pane.user_vars or {}",
-        "    local cmdline = uv.WEZTERM_PROG or uv.WEZTERM_CMD or uv.cmd or ''",
-        "    local uv_cmd = uv.cmd or uv.WEZTERM_CMD or ''",
-        "    if uv_cmd == '' and uv.WEZTERM_PROG and uv.WEZTERM_PROG ~= '' then",
-        "      local first_tok = uv.WEZTERM_PROG:match('^%s*(%S+)') or ''",
-        "      uv_cmd = first_tok:match('([^/\\\\]+)$') or first_tok",
-        "    end",
-        "    local fg = pane.foreground_process_name or ''",
-        "    local process = uv_cmd ~= '' and uv_cmd or (fg:match('([^/\\\\]+)$') or '')",
-        "    process = process:gsub('%.[eE][xX][eE]$', '')",
-        "    if idle_shells[process:lower()] then",
-        "      process = ''",
-        "    end",
-        "    local ssh_lvl = nil",
-        "    if ENABLE_SSH_ALERT then",
-        "      local p_low = process:lower()",
-        "      local dom = (pane.domain_name or ''):lower()",
-        "      if p_low == 'ssh' or p_low == 'mosh' or p_low == 'mosh-client' or (dom ~= '' and dom ~= 'local' and dom ~= 'unix' and dom:find('ssh')) then",
-        "        ssh_lvl = 'ssh'",
-        "        local low_cmd = (cmdline .. ' ' .. dom .. ' ' .. (pane.title or '')):lower()",
-        "        if low_cmd:find('prod') or low_cmd:find('prd') or low_cmd:find('root@') then",
-        "          ssh_lvl = 'prod'",
-        "        end",
-        "      end",
-        "    end",
+        "    local cmdline, uv = pane_cmdline(pane)",
+        "    local process = pane_process(pane, uv, fg)",
+        "    local ssh_lvl = pane_ssh_level(pane, process, cmdline)",
         "    local agent_tag = ''",
         "    if ENABLE_AGENT_RADAR then",
         "      local p_low = process:lower()",
         "      local is_agent = ai_agents[p_low]",
         "      if not is_agent then",
-        "        local hay = ((pane.title or '') .. ' ' .. cmdline):lower()",
-        "        for ag, _ in pairs(ai_agents) do",
-        "          if hay:find('%f[%w]' .. ag .. '%f[%W]') then is_agent = true; break end",
-        "        end",
+        "        is_agent = hay_has_agent(((pane.title or '') .. ' ' .. cmdline):lower())",
         "      end",
         "      if is_agent then",
         "        agent_tag = (not tab.is_active and pane.has_unseen_output) and '🤖● ' or '🤖 '",
@@ -2908,8 +2989,7 @@ def generate_lua_for_theme(
             f"    local next_bg = '{bg_bar}'",
             "    if tabs and tab.tab_index + 1 < #tabs then",
             "      local next_tab = tabs[tab.tab_index + 2]",
-            "      local _, _, _, _, _, next_ssh = get_title_info(next_tab)",
-            "      local next_c = effective_slot(palette[(next_tab.tab_index % #palette) + 1], next_ssh)",
+            "      local next_c = effective_slot(palette[(next_tab.tab_index % #palette) + 1], tab_ssh_level(next_tab))",
             "      next_bg = next_c.bg",
             "    end",
             "    local text = is_act and (c.active_sym .. index) or (index .. c.inactive_sym)",
@@ -2927,6 +3007,27 @@ def generate_lua_for_theme(
         ])
     elif style == "adaptive_gradient":
         lua.extend([
+            "  -- The gradient only depends on its two colors and the tab count: build it once,",
+            "  -- not on each of the two calls per tab.",
+            "  local _wt_grad_cache = _wt_cache()",
+            "  local function tab_gradient(from_hex, to_hex, total)",
+            "    local key = tostring(from_hex) .. '|' .. tostring(to_hex) .. '|' .. total",
+            "    local hit = _wt_grad_cache.data[key]",
+            "    if hit == nil then",
+            "      local ok_g, grad = pcall(function()",
+            "        return wezterm.color.gradient(",
+            "          { orientation = 'Horizontal', colors = { tostring(from_hex), tostring(to_hex) }, blend = 'Oklab' },",
+            "          total",
+            "        )",
+            "      end)",
+            "      hit = (ok_g and grad) or false",
+            "      _wt_cache_set(_wt_grad_cache, key, hit)",
+            "    end",
+            "    return hit or nil",
+            "  end",
+            "  local _wt_white = wezterm.color.parse('#ffffff')",
+            "  local _wt_dark = wezterm.color.parse('#111827')",
+            "",
             "  wezterm.on('format-tab-title', function(tab, tabs, panes, cfg, hover, max_width)",
             "    local index, label, process, dir, _pt, ssh_lvl = get_title_info(tab)",
             "    local is_act = tab.is_active",
@@ -2936,12 +3037,8 @@ def generate_lua_for_theme(
             "    local from_hex = (ansi and (ansi[5] or ansi[2])) or palette[1].bg",
             "    local to_hex = (ansi and (ansi[6] or ansi[7])) or palette[#palette].bg",
             f"    local bar_hex = (rp and rp.tab_bar and rp.tab_bar.background) or (rp and rp.background) or '{bg_bar}'",
-            "    local ok_g, grad = pcall(function()",
-            "      return wezterm.color.gradient(",
-            "        { orientation = 'Horizontal', colors = { tostring(from_hex), tostring(to_hex) }, blend = 'Oklab' },",
-            "        total",
-            "      )",
-            "    end)",
+            "    local grad = tab_gradient(from_hex, to_hex, total)",
+            "    local ok_g = grad ~= nil",
             "    local c_def = effective_slot(palette[(tab.tab_index % #palette) + 1], ssh_lvl)",
             "    local cur_col = (not ssh_lvl and ok_g and grad and grad[tab.tab_index + 1]) or nil",
             "    local bg = cur_col and tostring(cur_col) or c_def.bg",
@@ -2954,9 +3051,7 @@ def generate_lua_for_theme(
             "        cur_col = cur_col:darken(0.16)",
             "        bg = tostring(cur_col)",
             "      end",
-            "      local white = wezterm.color.parse('#ffffff')",
-            "      local dark = wezterm.color.parse('#111827')",
-            "      fg = (cur_col:contrast_ratio(white) >= cur_col:contrast_ratio(dark)) and '#ffffff' or '#111827'",
+            "      fg = (cur_col:contrast_ratio(_wt_white) >= cur_col:contrast_ratio(_wt_dark)) and '#ffffff' or '#111827'",
             "    elseif hover and not is_act then",
             "      bg = c_def.hover_bg",
             "      fg = c_def.hover_fg",
@@ -2993,16 +3088,26 @@ def generate_lua_for_theme(
         muted_fg = t.get("muted_fg", "#a3adc2")
         hover_muted, _ = _hover_pair(muted_bg, muted_fg)
         lua.extend([
+            "  local _wt_slot_cache = _wt_cache()",
             "  local function workspace_slot(name)",
-            "    local h = 0",
-            "    for i = 1, #name do",
-            "      h = (h * 31 + name:byte(i)) % 2147483648",
+            "    local slot = _wt_slot_cache.data[name]",
+            "    if slot == nil then",
+            "      local h = 0",
+            "      for i = 1, #name do",
+            "        h = (h * 31 + name:byte(i)) % 2147483648",
+            "      end",
+            "      slot = (h % #palette) + 1",
+            "      _wt_cache_set(_wt_slot_cache, name, slot)",
             "    end",
-            "    return (h % #palette) + 1",
+            "    return slot",
             "  end",
-            "",
-            "  wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)",
-            "    local index, label, process, dir, _pt, ssh_lvl = get_title_info(tab)",
+            "  -- The workspace is the same for every tab of a window: ask the mux once per update.",
+            "  local _wt_ws_cache = _wt_cache()",
+            "  local function tab_workspace(tab)",
+            "    local key = tab.window_id or 'active'",
+            "    local now = _wt_now()",
+            "    local e = _wt_ws_cache.data[key]",
+            "    if e and (now - e.t) < 0.05 then return e.ws end",
             "    local ws = 'default'",
             "    local ok_ws, res_ws = pcall(function()",
             "      if tab.window_id and wezterm.mux and wezterm.mux.get_window then",
@@ -3012,6 +3117,13 @@ def generate_lua_for_theme(
             "      return wezterm.mux and wezterm.mux.get_active_workspace and wezterm.mux.get_active_workspace() or nil",
             "    end)",
             "    if ok_ws and type(res_ws) == 'string' and res_ws ~= '' then ws = res_ws end",
+            "    _wt_cache_set(_wt_ws_cache, key, { t = now, ws = ws })",
+            "    return ws",
+            "  end",
+            "",
+            "  wezterm.on('format-tab-title', function(tab, tabs, panes, config, hover, max_width)",
+            "    local index, label, process, dir, _pt, ssh_lvl = get_title_info(tab)",
+            "    local ws = tab_workspace(tab)",
             "    local c = effective_slot(palette[workspace_slot(ws)], ssh_lvl)",
             "    if tab.is_active then",
             "      local ws_short = wezterm.column_width(ws) > 8 and (wezterm.truncate_right(ws, 7) .. '…') or ws",
