@@ -1081,6 +1081,10 @@
             <label for="statusBarCheck" title="Theme-tinted right status bar showing leader/mode pill, workspace/mux domain, cached git branch, battery, and clock">Enable right-status bar (mode · git · mux · battery · clock)</label>
             <input id="statusBarCheck" type="checkbox">
           </div>
+          <div id="batteryStatusOffNote" style="display:none;background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.35);color:var(--amber);padding:6px 10px;border-radius:7px;font-size:0.78rem;">
+            ℹ Enable the right-status bar above to display the battery indicator in WezTerm.
+          </div>
+          <div id="batteryControlsWrap" style="display:flex;flex-direction:column;gap:14px;">
           <div class="s-row">
             <label for="batteryModeSelect" title="Control when the battery segment appears in the right status bar (automatically hidden on desktops without a battery)">Battery visibility</label>
             <select id="batteryModeSelect">
@@ -1113,7 +1117,7 @@
             <input id="batteryWarnInput" type="number" min="10" max="80" step="5" value="30">
           </div>
           <div class="s-row">
-            <label for="batteryCritInput" title="Discharging at or below this % renders a bold crimson alert pill">Critical threshold (crimson pill %)</label>
+            <label for="batteryCritInput" title="Discharging at or below this % renders a bold crimson alert pill (always kept below Warning %)">Critical threshold (crimson pill %)</label>
             <input id="batteryCritInput" type="number" min="3" max="50" step="1" value="15">
           </div>
           <div class="s-row">
@@ -1121,8 +1125,9 @@
             <input id="batteryToastCheck" type="checkbox">
           </div>
           <div>
-            <div style="font-size:0.75rem;color:var(--sub);margin-bottom:6px;">Live 4-state preview (Charging · Normal · Low · Critical):</div>
+            <div style="font-size:0.75rem;color:var(--sub);margin-bottom:6px;">Live 5-state preview (AC · Full · Normal · Low · Critical):</div>
             <div id="batteryPreviewBox" style="background:#11131a;border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-family:var(--tab-preview-font,monospace);font-size:0.78rem;display:flex;flex-wrap:wrap;gap:10px;align-items:center;"></div>
+          </div>
           </div>
         </div>
 
@@ -1706,6 +1711,8 @@
       document.getElementById("tabBottomCheck").checked = app.tab_bar_at_bottom !== false;
       document.getElementById("hideOneTabCheck").checked = !!app.hide_tab_bar_if_only_one_tab;
       document.getElementById("statusBarCheck").checked = !!app.status_bar;
+      document.getElementById("batteryStatusOffNote").style.display = app.status_bar ? "none" : "block";
+      document.getElementById("batteryControlsWrap").style.opacity = app.status_bar ? "1" : "0.62";
       document.getElementById("batteryModeSelect").value = app.battery_mode || "always";
       document.getElementById("batteryStyleSelect").value = app.battery_style || "nerd";
       document.getElementById("batteryTimeSelect").value = app.battery_time || "off";
@@ -2389,6 +2396,14 @@
     document.getElementById("hideOneTabCheck").addEventListener("change", e => {
       updateAppearance({ hide_tab_bar_if_only_one_tab: e.target.checked }, `Hide single tab → ${e.target.checked ? "Yes" : "No"}`);
     });
+    function batSvg(pct, isCharging) {
+      const fillW = Math.max(1, Math.min(12, Math.round((pct / 100) * 12)));
+      const bolt = isCharging
+        ? `<path d="M9.5 1.5 L6.2 7.2 H9.0 L7.2 12.5 L12.0 6.2 H9.2 Z" fill="currentColor"/>`
+        : `<rect x="3" y="4.5" width="${fillW}" height="5" rx="1" fill="currentColor"/>`;
+      return `<svg width="17" height="12" viewBox="0 0 20 14" style="vertical-align:-2px;margin-right:3px;flex-shrink:0;" aria-hidden="true"><rect x="1" y="2.5" width="16" height="9" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="17.6" y="5" width="1.8" height="4" rx="0.8" fill="currentColor"/>${bolt}</svg>`;
+    }
+
     function renderBatteryPreview() {
       const box = document.getElementById("batteryPreviewBox");
       if (!box) return;
@@ -2404,7 +2419,6 @@
         return;
       }
 
-      const nfSteps = ["\udb80\udc8e","\udb80\udc7a","\udb80\udc7b","\udb80\udc7c","\udb80\udc7d","\udb80\udc7e","\udb80\udc7f","\udb80\udc80","\udb80\udc81","\udb80\udc82","\udb80\udc79"];
       const samples = [
         { label: "AC", pct: 89, state: "Charging", eta: " (21m)" },
         { label: "Full", pct: 100, state: "Full", eta: "" },
@@ -2419,31 +2433,29 @@
         const isDis = s.state === "Discharging";
         const hidden = (mode === "hide_full" && isFull) || (mode === "low_only" && !(isDis && s.pct <= warnPct));
         const eta = tmode === "always" ? s.eta : (tmode === "discharging" && isDis ? s.eta : "");
-        const step = Math.min(10, Math.max(0, Math.floor((s.pct + 5) / 10)));
-        const nfIcon = isCharging ? "\udb80\udc84" : (isFull ? "\udb80\udc79" : nfSteps[step]);
-        let txt = "";
+        let bodyHtml = "";
         if (style === "emoji") {
           const em = isCharging ? "⚡🔋" : ((isDis && s.pct <= warnPct) ? "🪫" : "🔋");
-          txt = `${em} ${s.pct}%${eta}`;
+          bodyHtml = esc(`${em} ${s.pct}%${eta}`);
         } else if (style === "bar") {
           const filled = Math.min(5, Math.max(0, Math.floor((s.pct + 10) / 20)));
-          txt = `[${"█".repeat(filled)}${"░".repeat(5 - filled)}] ${s.pct}%${isCharging ? "⚡" : ""}${eta}`;
+          bodyHtml = esc(`[${"█".repeat(filled)}${"░".repeat(5 - filled)}] ${s.pct}%${isCharging ? "⚡" : ""}${eta}`);
         } else if (style === "icon_only") {
-          txt = (isDis && s.pct <= warnPct) ? `${nfIcon} ${s.pct}%${eta}` : `${nfIcon}${eta}`;
+          bodyHtml = batSvg(s.pct, isCharging) + ((isDis && s.pct <= warnPct) ? esc(`${s.pct}%${eta}`) : esc(eta.trim()));
         } else if (style === "percent") {
-          txt = `${isCharging ? "⚡" : ""}${s.pct}%${eta}`;
+          bodyHtml = esc(`${isCharging ? "⚡" : ""}${s.pct}%${eta}`);
         } else {
-          txt = `${nfIcon} ${s.pct}%${eta}`;
+          bodyHtml = batSvg(s.pct, isCharging) + esc(`${s.pct}%${eta}`);
         }
 
         if (hidden) {
-          return `<span style="opacity:0.38;font-size:0.72rem;" title="Hidden in '${esc(mode)}' mode">${esc(s.label)}: <s>${esc(txt)}</s></span>`;
+          return `<span style="opacity:0.38;font-size:0.72rem;display:inline-flex;align-items:center;" title="Hidden in '${esc(mode)}' mode">${esc(s.label)}:&nbsp;<s>${bodyHtml}</s></span>`;
         }
-        let css = "color:#a6adc8;";
-        if (isCharging || isFull) css = "color:#34d399;";
-        else if (isDis && s.pct <= critPct) css = "background:#dc2626;color:#fff;font-weight:700;padding:1px 6px;border-radius:4px;";
-        else if (isDis && s.pct <= warnPct) css = "color:#fbbf24;font-weight:700;";
-        return `<span style="${css}" title="${esc(s.label)} sample">${esc(txt)}</span>`;
+        let css = "color:#a6adc8;display:inline-flex;align-items:center;";
+        if (isCharging || isFull) css = "color:#34d399;display:inline-flex;align-items:center;";
+        else if (isDis && s.pct <= critPct) css = "background:#dc2626;color:#fff;font-weight:700;padding:1px 6px;border-radius:4px;display:inline-flex;align-items:center;";
+        else if (isDis && s.pct <= warnPct) css = "color:#fbbf24;font-weight:700;display:inline-flex;align-items:center;";
+        return `<span style="${css}" title="${esc(s.label)} sample (WezTerm uses native Nerd Font glyphs for 'nerd' & 'icon_only')">${bodyHtml}</span>`;
       }).join(`<span style="color:#475569;">·</span>`);
     }
 
@@ -2463,16 +2475,25 @@
       updateAppearance({ battery_time: e.target.value }, `Battery ETA → ${e.target.options[e.target.selectedIndex].text}`);
     });
     document.getElementById("batteryWarnInput").addEventListener("change", e => {
-      const v = Math.max(5, Math.min(95, parseInt(e.target.value, 10) || 30));
-      e.target.value = v;
+      const w = Math.max(5, Math.min(95, parseInt(e.target.value, 10) || 30));
+      e.target.value = w;
+      const critEl = document.getElementById("batteryCritInput");
+      const curC = parseInt(critEl.value, 10) || 15;
+      const updates = { battery_warn: w };
+      if (curC >= w) {
+        const clampedC = Math.max(1, w - 1);
+        critEl.value = clampedC;
+        updates.battery_crit = clampedC;
+      }
       renderBatteryPreview();
-      updateAppearance({ battery_warn: v }, `Battery warning threshold → ${v}%`);
+      updateAppearance(updates, `Battery warning threshold → ${w}%`);
     });
     document.getElementById("batteryCritInput").addEventListener("change", e => {
-      const v = Math.max(1, Math.min(90, parseInt(e.target.value, 10) || 15));
-      e.target.value = v;
+      const warnVal = Math.max(5, Math.min(95, parseInt(document.getElementById("batteryWarnInput").value, 10) || 30));
+      const c = Math.max(1, Math.min(warnVal - 1, Math.min(90, parseInt(e.target.value, 10) || 15)));
+      e.target.value = c;
       renderBatteryPreview();
-      updateAppearance({ battery_crit: v }, `Battery critical threshold → ${v}%`);
+      updateAppearance({ battery_crit: c }, `Battery critical threshold → ${c}%`);
     });
     document.getElementById("batteryToastCheck").addEventListener("change", e => {
       updateAppearance({ battery_toast: e.target.checked }, `Low-battery desktop toast → ${e.target.checked ? "On" : "Off"}`);
@@ -2548,7 +2569,6 @@
       const res = await apiPost("/api/perf-profile", { profile: prof.id });
       if (res.state) STATE = res.state;
       if (res.warnings) PERF_WARNINGS = res.warnings;
-      if (res.perf) PERF = res.perf;
       if (res.perf) PERF = res.perf;
       syncHeaderAndAppearanceUI();
       setStatus((res.ok ? "✔ " : "✖ ") + (res.msg || "Failed to apply profile"), res.ok ? "ok" : "err");

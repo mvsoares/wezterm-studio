@@ -2454,6 +2454,13 @@ class BatteryIndicatorTests(unittest.TestCase):
         self.assertFalse(saved_off["status"]["battery"])
         self.assertEqual(saved_off["status"]["battery_mode"], "off")
 
+        # Critical threshold >= warning threshold is clamped cleanly below warning
+        ok, err = apply_appearance({"battery_warn": 25, "battery_crit": 35})
+        self.assertTrue(ok, err)
+        app_clamped = get_current_state()["appearance"]
+        self.assertEqual(app_clamped["battery_warn"], 25)
+        self.assertEqual(app_clamped["battery_crit"], 24)
+
     def test_wezterm_runtime_battery_styles_modes_eta_and_toast(self) -> None:
         wz = find_wezterm_cmd()
         if not wz:

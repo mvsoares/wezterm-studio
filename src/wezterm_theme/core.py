@@ -363,6 +363,9 @@ def normalize_appearance_updates(updates: dict[str, Any]) -> dict[str, Any]:
             out[key] = _as_int_in_range(key, value, lo, hi)
         else:
             out[key] = value
+    if isinstance(out.get("battery_warn"), int) and isinstance(out.get("battery_crit"), int):
+        if out["battery_crit"] >= out["battery_warn"]:
+            out["battery_crit"] = max(1, out["battery_warn"] - 1)
     return out
 
 
