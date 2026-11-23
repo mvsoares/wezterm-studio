@@ -2391,5 +2391,150 @@ class Performance143Tests(unittest.TestCase):
         self.assertEqual(errors, [], res.stderr)
 
 
+class BatteryIndicatorTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp_path = Path(self._tmp.name)
+        self._old_env = os.environ.get("WEZTERM_CONFIG_FILE")
+        self.cfg_path = self.tmp_path / "wezterm.lua"
+        os.environ["WEZTERM_CONFIG_FILE"] = str(self.cfg_path)
+
+    def tearDown(self) -> None:
+        if self._old_env is None:
+            os.environ.pop("WEZTERM_CONFIG_FILE", None)
+        else:
+            os.environ["WEZTERM_CONFIG_FILE"] = self._old_env
+        self._tmp.cleanup()
+
+    def test_loader_and_cli_battery_options_roundtrip(self) -> None:
+        (self.tmp_path / "defaults.json").write_text(
+            json.dumps({
+                "tabs": {"theme_file": "tab_theme.lua"},
+                "status": {"enabled": True, "battery": True},
+            }),
+            encoding="utf-8",
+        )
+        (self.tmp_path / "settings.json").write_text("{}", encoding="utf-8")
+        self.cfg_path.write_text(
+            "-- WezTerm loader\nlocal wezterm = require 'wezterm'\nreturn wezterm.config_builder()\n",
+            encoding="utf-8",
+        )
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = cli_main([
+                "--battery-mode", "hide_full",
+                "--battery-style", "bar",
+                "--battery-time", "always",
+                "--battery-warn", "35",
+                "--battery-crit", "18",
+                "--battery-toast",
+            ])
+        self.assertEqual(rc, 0)
+
+        st = get_current_state()
+        app = st["appearance"]
+        self.assertEqual(app["battery_mode"], "hide_full")
+        self.assertEqual(app["battery_style"], "bar")
+        self.assertEqual(app["battery_time"], "always")
+        self.assertEqual(app["battery_warn"], 35)
+        self.assertEqual(app["battery_crit"], 18)
+        self.assertTrue(app["battery_toast"])
+
+        saved = json.loads((self.tmp_path / "settings.json").read_text(encoding="utf-8"))
+        self.assertTrue(saved["status"]["battery"])
+        self.assertEqual(saved["status"]["battery_mode"], "hide_full")
+        self.assertEqual(saved["status"]["battery_style"], "bar")
+
+        # Ensure "off" is preserved as "off" (not treated as a reset sentinel)
+        ok, err = apply_appearance({"battery_mode": "off"})
+        self.assertTrue(ok, err)
+        self.assertEqual(get_current_state()["appearance"]["battery_mode"], "off")
+        saved_off = json.loads((self.tmp_path / "settings.json").read_text(encoding="utf-8"))
+        self.assertFalse(saved_off["status"]["battery"])
+        self.assertEqual(saved_off["status"]["battery_mode"], "off")
+
+    def test_wezterm_runtime_battery_styles_modes_eta_and_toast(self) -> None:
+        wz = find_wezterm_cmd()
+        if not wz:
+            self.skipTest("wezterm binary not installed")
+        mod = self.tmp_path / "mod_bat.lua"
+        mod.write_text(
+            generate_lua_for_theme(
+                get_theme_by_id(8),
+                appearance={
+                    "status_bar": True,
+                    "battery_mode": "always",
+                    "battery_style": "emoji",
+                    "battery_time": "always",
+                    "battery_warn": 30,
+                    "battery_crit": 15,
+                    "battery_toast": True,
+                },
+            ),
+            encoding="utf-8",
+        )
+        harness = self.tmp_path / "harness_bat.lua"
+        harness.write_text(
+            "\n".join([
+                "local wezterm = require 'wezterm'",
+                f"local M = dofile({_lua_str(mod.as_posix())})",
+                "assert(type(M.format_battery_segments) == 'function', 'missing M.format_battery_segments')",
+                "local toasts = 0",
+                "local last_toast = ''",
+                "local mock_win = {",
+                "  toast_notification = function(_, title, body) toasts = toasts + 1; last_toast = title .. '|' .. body end,",
+                "}",
+                "local fake_bats = {}",
+                "local mock_wz = setmetatable({",
+                "  GLOBAL = {},",
+                "  battery_info = function() return fake_bats end,",
+                "}, { __index = wezterm })",
+                "",
+                "-- 1. Charging with time_to_full (1260s -> 21m) across styles",
+                "fake_bats = { { state_of_charge = 0.89, state = 'Charging', time_to_full = 1260 } }",
+                "local s_nerd = M.format_battery_segments(mock_wz, mock_win, { style = 'nerd', time = 'always' })",
+                "assert(#s_nerd == 1 and s_nerd[1].text:find('89%% %(21m%)') and s_nerd[1].fg == '#34d399', 'bad nerd charging: ' .. tostring(s_nerd[1] and s_nerd[1].text))",
+                "local s_bar = M.format_battery_segments(mock_wz, mock_win, { style = 'bar', time = 'always' })",
+                "assert(#s_bar == 1 and s_bar[1].text:find('%[████░%] 89%%⚡ %(21m%)'), 'bad bar charging: ' .. tostring(s_bar[1] and s_bar[1].text))",
+                "local s_em = M.format_battery_segments(mock_wz, mock_win, { style = 'emoji', time = 'off' })",
+                "assert(#s_em == 1 and s_em[1].text == '⚡🔋 89%', 'bad emoji charging: ' .. tostring(s_em[1] and s_em[1].text))",
+                "local s_ico = M.format_battery_segments(mock_wz, mock_win, { style = 'icon_only', time = 'off' })",
+                "assert(#s_ico == 1 and not s_ico[1].text:find('%%'), 'icon_only should omit % when healthy: ' .. tostring(s_ico[1] and s_ico[1].text))",
+                "",
+                "-- 2. Visibility modes: hide_full hides Full and 80% Unknown (plugged threshold)",
+                "fake_bats = { { state_of_charge = 1.0, state = 'Full' }, { state_of_charge = 0.80, state = 'Unknown' } }",
+                "assert(#M.format_battery_segments(mock_wz, mock_win, { mode = 'hide_full' }) == 0, 'hide_full failed')",
+                "assert(#M.format_battery_segments(mock_wz, mock_win, { mode = 'off' }) == 0, 'off mode failed')",
+                "",
+                "-- 3. Discharging ETA (8100s -> 2h15m), low_only filtering, critical crimson pill & 1-shot toast",
+                "fake_bats = { { state_of_charge = 0.68, state = 'Discharging', time_to_empty = 8100 } }",
+                "assert(#M.format_battery_segments(mock_wz, mock_win, { mode = 'low_only', warn = 30 }) == 0, 'low_only should hide 68%')",
+                "local s_dis = M.format_battery_segments(mock_wz, mock_win, { style = 'percent', time = 'discharging' })",
+                "assert(#s_dis == 1 and s_dis[1].text == '68% (2h15m)', 'bad discharging ETA: ' .. tostring(s_dis[1] and s_dis[1].text))",
+                "",
+                "fake_bats = { { state_of_charge = 0.11, state = 'Discharging', time_to_empty = 960 } }",
+                "local s_crit1 = M.format_battery_segments(mock_wz, mock_win, { mode = 'low_only', style = 'icon_only', time = 'discharging', warn = 30, crit = 15, toast = true })",
+                "assert(#s_crit1 == 1 and s_crit1[1].bg == '#dc2626' and s_crit1[1].text:find('11%% %(16m%)'), 'bad crit pill: ' .. tostring(s_crit1[1] and s_crit1[1].text))",
+                "assert(toasts == 1 and last_toast:find('11%%'), 'expected 1 low-battery toast, got ' .. tostring(toasts))",
+                "-- Second poll at 10% should NOT spam a second toast",
+                "fake_bats = { { state_of_charge = 0.10, state = 'Discharging', time_to_empty = 900 } }",
+                "M.format_battery_segments(mock_wz, mock_win, { crit = 15, toast = true })",
+                "assert(toasts == 1, 'toast should be 1-shot until recharged')",
+                "-- Plugging in resets toast state so a future discharge notifies again",
+                "fake_bats = { { state_of_charge = 0.50, state = 'Charging' } }",
+                "M.format_battery_segments(mock_wz, mock_win, { crit = 15, toast = true })",
+                "fake_bats = { { state_of_charge = 0.12, state = 'Discharging' } }",
+                "M.format_battery_segments(mock_wz, mock_win, { crit = 15, toast = true })",
+                "assert(toasts == 2, 'toast should re-arm after charging, got ' .. tostring(toasts))",
+                "return wezterm.config_builder()",
+            ]),
+            encoding="utf-8",
+        )
+        res = subprocess.run([*wz, "--config-file", str(harness), "ls-fonts", "--text", "a"], capture_output=True, text=True, timeout=30)
+        errors = [ln for ln in res.stderr.splitlines() if " ERROR " in ln]
+        self.assertEqual(errors, [], res.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

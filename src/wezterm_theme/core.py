@@ -29,6 +29,9 @@ from typing import Any, Callable, TypeVar
 
 from .paths import atomic_write_text, find_wezterm_cmd, get_platform_name, resolve_wezterm_paths
 from .themes import (
+    BATTERY_MODES,
+    BATTERY_STYLES,
+    BATTERY_TIMES,
     CURSOR_EASINGS,
     THEMES,
     _lua_long_str,
@@ -85,6 +88,12 @@ DEFAULT_APPEARANCE: dict[str, Any] = {
     "use_fancy_tab_bar": None,
     "tab_max_width": None,
     "status_bar": None,
+    "battery_mode": None,
+    "battery_style": None,
+    "battery_time": None,
+    "battery_warn": None,
+    "battery_crit": None,
+    "battery_toast": None,
     "open_in_editor": None,
     "editor_cmd": None,
     "agent_indicators": None,
@@ -168,12 +177,13 @@ _APPEARANCE_STR_KEYS = {
     "font_family", "font_weight", "tab_font_family", "tab_font_weight", "color_scheme",
     "color_scheme_light", "window_decorations", "cursor_style", "audible_bell", "editor_cmd",
     "win32_backdrop", "front_end", "webgpu_power_preference", "cursor_blink_ease",
+    "battery_mode", "battery_style", "battery_time",
 }
 _APPEARANCE_BOOL_KEYS = {
     "font_ligatures", "font_fallback", "oled_black", "background_gradient", "accent_border",
     "hide_tab_bar_if_only_one_tab", "tab_bar_at_bottom", "status_bar", "open_in_editor",
     "agent_indicators", "ssh_alert", "command_palette", "workspace_switcher", "session_manager",
-    "quick_select",
+    "quick_select", "battery_toast",
 }
 _APPEARANCE_AUTO_BOOL_KEYS = {"use_fancy_tab_bar", "enable_wayland"}
 _APPEARANCE_FLOAT_RANGES: dict[str, tuple[float, float]] = {
@@ -193,6 +203,8 @@ _APPEARANCE_INT_RANGES: dict[str, tuple[int, int]] = {
     "animation_fps": (0, 255),
     "status_update_interval": (0, 600_000),
     "window_padding": (0, 1000),
+    "battery_warn": (5, 95),
+    "battery_crit": (1, 90),
 }
 _APPEARANCE_ENUM_VALUES: dict[str, set[str]] = {
     "front_end": {"WebGpu", "OpenGL", "Software"},
@@ -208,6 +220,9 @@ _APPEARANCE_ENUM_VALUES: dict[str, set[str]] = {
     "audible_bell": {"SystemBeep", "Disabled"},
     "webgpu_power_preference": {"LowPower", "HighPerformance"},
     "cursor_blink_ease": set(CURSOR_EASINGS),
+    "battery_mode": set(BATTERY_MODES),
+    "battery_style": set(BATTERY_STYLES),
+    "battery_time": set(BATTERY_TIMES),
 }
 _VALID_WINDOW_DECORATION_TOKENS = {
     "NONE",
@@ -295,6 +310,10 @@ def normalize_appearance_updates(updates: dict[str, Any]) -> dict[str, Any]:
         if key not in DEFAULT_APPEARANCE:
             continue
         if value is None:
+            out[key] = None
+        elif key in ("battery_mode", "battery_style", "battery_time") and isinstance(value, str) and value.strip() in ("", "Default", "Auto", "none"):
+            out[key] = None
+        elif key in ("battery_warn", "battery_crit") and value in (0, "0", "", "Default", "Auto"):
             out[key] = None
         elif key in _RESETTABLE_STR_KEYS and isinstance(value, str) and (not value.strip() or value.strip() in _RESET_SENTINELS):
             out[key] = None
@@ -551,6 +570,21 @@ def _extract_loader_appearance(merged: dict[str, Any], settings_only: dict[str, 
     app["tab_max_width"] = tb.get("max_width")
     if st_sec.get("enabled") is not None:
         app["status_bar"] = bool(st_sec.get("enabled"))
+    b_mode = st_sec.get("battery_mode")
+    if b_mode in BATTERY_MODES:
+        app["battery_mode"] = b_mode
+    elif st_sec.get("battery") is False:
+        app["battery_mode"] = "off"
+    if st_sec.get("battery_style") in BATTERY_STYLES:
+        app["battery_style"] = st_sec["battery_style"]
+    if st_sec.get("battery_time") in BATTERY_TIMES:
+        app["battery_time"] = st_sec["battery_time"]
+    if isinstance(st_sec.get("battery_warn"), (int, float)) and not isinstance(st_sec.get("battery_warn"), bool):
+        app["battery_warn"] = int(st_sec["battery_warn"])
+    if isinstance(st_sec.get("battery_crit"), (int, float)) and not isinstance(st_sec.get("battery_crit"), bool):
+        app["battery_crit"] = int(st_sec["battery_crit"])
+    if st_sec.get("battery_toast") is not None:
+        app["battery_toast"] = bool(st_sec.get("battery_toast"))
     if hl.get("open_in_editor") is not None:
         app["open_in_editor"] = bool(hl.get("open_in_editor"))
     app["editor_cmd"] = hl.get("editor") or None
@@ -1743,6 +1777,49 @@ def _sync_loader_settings(
                 st_sec["update_interval"] = int(appearance_updates["status_update_interval"])
             else:
                 st_sec.pop("update_interval", None)
+        if any(
+            k in appearance_updates
+            for k in ("battery_mode", "battery_style", "battery_time", "battery_warn", "battery_crit", "battery_toast")
+        ):
+            st_sec = data.setdefault("status", {})
+            if "battery_mode" in appearance_updates:
+                bm = appearance_updates["battery_mode"]
+                if not bm:
+                    st_sec.pop("battery_mode", None)
+                    st_sec["battery"] = True
+                else:
+                    st_sec["battery_mode"] = str(bm)
+                    st_sec["battery"] = str(bm) != "off"
+            if "battery_style" in appearance_updates:
+                bs = appearance_updates["battery_style"]
+                if not bs:
+                    st_sec.pop("battery_style", None)
+                else:
+                    st_sec["battery_style"] = str(bs)
+            if "battery_time" in appearance_updates:
+                bt = appearance_updates["battery_time"]
+                if not bt:
+                    st_sec.pop("battery_time", None)
+                else:
+                    st_sec["battery_time"] = str(bt)
+            if "battery_warn" in appearance_updates:
+                bw = appearance_updates["battery_warn"]
+                if bw is None:
+                    st_sec.pop("battery_warn", None)
+                else:
+                    st_sec["battery_warn"] = int(bw)
+            if "battery_crit" in appearance_updates:
+                bc = appearance_updates["battery_crit"]
+                if bc is None:
+                    st_sec.pop("battery_crit", None)
+                else:
+                    st_sec["battery_crit"] = int(bc)
+            if "battery_toast" in appearance_updates:
+                btoast = appearance_updates["battery_toast"]
+                if btoast is None:
+                    st_sec.pop("battery_toast", None)
+                else:
+                    st_sec["battery_toast"] = bool(btoast)
         if "agent_indicators" in appearance_updates and appearance_updates["agent_indicators"] is not None:
             tabs["agent_indicators"] = bool(appearance_updates["agent_indicators"])
             st_sec = data.setdefault("status", {})

@@ -38,6 +38,9 @@ from .paths import resolve_wezterm_paths
 from .perf import BenchmarkError, benchmark_current, format_benchmark
 from .server import run_studio_server
 from .themes import (
+    BATTERY_MODES,
+    BATTERY_STYLES,
+    BATTERY_TIMES,
     CATEGORIES,
     CATEGORY_SHORTCUTS,
     DEFAULT_SYMBOLS,
@@ -746,6 +749,10 @@ def color_scheme_menu() -> str:
         grad_on = bool(app.get("background_gradient"))
         border_on = bool(app.get("accent_border"))
         sbar_on = bool(app.get("status_bar"))
+        bat_mode = app.get("battery_mode") or "always"
+        bat_style = app.get("battery_style") or "nerd"
+        bat_time = app.get("battery_time") or "off"
+        bat_toast = bool(app.get("battery_toast"))
         ed_on = app.get("open_in_editor") is not False
         ed_cmd = app.get("editor_cmd") or "$EDITOR"
         agents_on = app.get("agent_indicators") is not False
@@ -780,7 +787,9 @@ def color_scheme_menu() -> str:
         print(
             f"  {DIM}AI agent radar:{RESET} {BOLD}{GREEN if agents_on else DIM}{'ON' if agents_on else 'OFF'}{RESET} · "
             f"{DIM}SSH/PROD alert:{RESET} {BOLD}{GREEN if ssh_on else DIM}{'ON' if ssh_on else 'OFF'}{RESET} · "
-            f"{DIM}Cmd Palette (Ctrl+Shift+P):{RESET} {BOLD}{GREEN if pal_on else DIM}{'ON' if pal_on else 'OFF'}{RESET}\n"
+            f"{DIM}Cmd Palette:{RESET} {BOLD}{GREEN if pal_on else DIM}{'ON' if pal_on else 'OFF'}{RESET} · "
+            f"{DIM}Battery:{RESET} {BOLD}{'OFF' if bat_mode == 'off' else f'{bat_style}/{bat_mode}'}{RESET}"
+            f"{f' ({bat_time})' if bat_mode != 'off' and bat_time != 'off' else ''}\n"
         )
         print(f"  {BOLD}Quick Favorites (with TrueColor Swatches):{RESET}")
         for i, fav in enumerate(favorites, start=1):
@@ -802,7 +811,10 @@ def color_scheme_menu() -> str:
             f"\n  {DIM}[1-{len(favorites)}] Favorite | [/q | /dark | /light] Search | [light <name>|off] | [oled] | [blur <0-100>] | [dim <0.4-1.0>] | [grad] | [border] | [status] | [qsel]{RESET}"
         )
         print(
-            f"  {DIM}[agents] AI radar | [ssh] SSH/prod tint | [palette] Cmd palette | [editor <cmd>|env] | [links] | [maxw <N|auto>] | [fancy|retro|auto] | [q] Back{RESET}"
+            f"  {DIM}[agents] AI radar | [ssh] SSH/prod | [palette] | [bat <nerd|emoji|bar|icon_only|percent|always|hide_full|low_only|off>] | [btime <off|discharging|always>] | [btoast]{RESET}"
+        )
+        print(
+            f"  {DIM}[editor <cmd>|env] | [links] | [maxw <N|auto>] | [fancy|retro|auto] | [q] Back{RESET}"
         )
         try:
             ans = input(f"  {BOLD}{CYAN}❯ Scheme or command:{RESET} ").strip()
@@ -878,6 +890,33 @@ def color_scheme_menu() -> str:
             ok, err = apply_appearance({"status_bar": not sbar_on})
             status_msg = (
                 f"{GREEN}{BOLD}✔ Studio right-status bar {'enabled' if not sbar_on else 'disabled'}!{RESET}"
+                if ok
+                else failure_msg(err)
+            )
+            continue
+        if low.startswith("bat "):
+            b_arg = ans.split(None, 1)[1].strip().lower()
+            if b_arg in BATTERY_STYLES:
+                ok, err = apply_appearance({"battery_style": b_arg, **({"battery_mode": "always"} if bat_mode == "off" else {})})
+                status_msg = f"{GREEN}{BOLD}✔ Battery icon style set to '{b_arg}'!{RESET}" if ok else failure_msg(err)
+            elif b_arg in BATTERY_MODES:
+                ok, err = apply_appearance({"battery_mode": b_arg})
+                status_msg = f"{GREEN}{BOLD}✔ Battery visibility set to '{b_arg}'!{RESET}" if ok else failure_msg(err)
+            else:
+                status_msg = f"{RED}Usage: bat <{'|'.join(BATTERY_STYLES)}|{'|'.join(BATTERY_MODES)}>{RESET}"
+            continue
+        if low.startswith("btime "):
+            bt_arg = ans.split(None, 1)[1].strip().lower()
+            if bt_arg in BATTERY_TIMES:
+                ok, err = apply_appearance({"battery_time": bt_arg})
+                status_msg = f"{GREEN}{BOLD}✔ Battery ETA mode set to '{bt_arg}'!{RESET}" if ok else failure_msg(err)
+            else:
+                status_msg = f"{RED}Usage: btime <{'|'.join(BATTERY_TIMES)}>{RESET}"
+            continue
+        if low in ("btoast", "bat-toast", "battery-toast"):
+            ok, err = apply_appearance({"battery_toast": not bat_toast})
+            status_msg = (
+                f"{GREEN}{BOLD}✔ Low-battery desktop toast {'enabled' if not bat_toast else 'disabled'}!{RESET}"
                 if ok
                 else failure_msg(err)
             )

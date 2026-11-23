@@ -156,6 +156,9 @@ wezterm-theme --list
 wezterm-theme --current
 wezterm-theme doctor
 
+# Configure status-bar battery indicator (style: nerd|emoji|bar|icon_only|percent; mode: always|hide_full|low_only|off; ETA & critical toast)
+wezterm-theme --status-bar --battery-style nerd --battery-mode always --battery-time always --battery-toast
+
 # Configure AI coding agent radar, SSH/prod danger tint, or Ctrl+Shift+P Command Palette actions
 wezterm-theme --agent-radar --ssh-alert --command-palette
 

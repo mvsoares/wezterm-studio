@@ -39,7 +39,17 @@ from .fonts import get_color_scheme_palettes, get_color_schemes, get_installed_f
 from .paths import init_terminal, resolve_wezterm_paths, system_summary
 from .perf import BenchmarkError, benchmark_current, format_benchmark
 from .server import DEFAULT_PORT, run_studio_server
-from .themes import CURSOR_EASINGS, THEMES, apply_symbols, filter_themes, find_theme, get_theme_by_id
+from .themes import (
+    BATTERY_MODES,
+    BATTERY_STYLES,
+    BATTERY_TIMES,
+    CURSOR_EASINGS,
+    THEMES,
+    apply_symbols,
+    filter_themes,
+    find_theme,
+    get_theme_by_id,
+)
 from .tui import (
     BOLD,
     CYAN,
@@ -326,6 +336,21 @@ def _print_current_status() -> None:
         extras.append("QuickSelect: On")
     if app.get("status_bar") is not None:
         extras.append(f"Status bar: {'On' if app['status_bar'] else 'Off'}")
+    if any(
+        app.get(k) is not None
+        for k in ("battery_mode", "battery_style", "battery_time", "battery_warn", "battery_crit", "battery_toast")
+    ):
+        b_mode = app.get("battery_mode") or "always"
+        b_style = app.get("battery_style") or "nerd"
+        b_time = app.get("battery_time") or "off"
+        b_warn = app.get("battery_warn") or 30
+        b_crit = app.get("battery_crit") or 15
+        b_toast = " · toast" if app.get("battery_toast") else ""
+        extras.append(
+            "Battery: Off"
+            if b_mode == "off"
+            else f"Battery: {b_style}/{b_mode} (ETA:{b_time}, ≤{b_warn}%/≤{b_crit}%{b_toast})"
+        )
     if app.get("tab_max_width") is not None:
         extras.append(f"Max tab width: {app['tab_max_width']}c")
     if app.get("use_fancy_tab_bar") is not None:
@@ -536,6 +561,39 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Enable or disable Studio right-status bar (mode pill, workspace/mux, git, battery, clock)",
     )
     parser.add_argument(
+        "--battery-mode",
+        choices=["Default", *BATTERY_MODES],
+        help="Status-bar battery visibility: always, hide_full (hide when 100%% or plugged at limit), low_only, or off",
+    )
+    parser.add_argument(
+        "--battery-style",
+        choices=["Default", *BATTERY_STYLES],
+        help="Battery indicator style: nerd (10-step + bolt), emoji, bar ([████░]), icon_only, or percent",
+    )
+    parser.add_argument(
+        "--battery-time",
+        choices=["Default", *BATTERY_TIMES],
+        help="Show remaining battery / time-to-full ETA: off, discharging, or always",
+    )
+    parser.add_argument(
+        "--battery-warn",
+        type=int,
+        metavar="PCT",
+        help="Warning battery percentage threshold for amber color & low_only mode (5-95, default 30; 0 resets)",
+    )
+    parser.add_argument(
+        "--battery-crit",
+        type=int,
+        metavar="PCT",
+        help="Critical battery percentage threshold for crimson alert pill & toast (1-90, default 15; 0 resets)",
+    )
+    parser.add_argument(
+        "--battery-toast",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable 1-shot desktop notification when discharging reaches critical battery %%",
+    )
+    parser.add_argument(
         "--agent-radar",
         action=argparse.BooleanOptionalAction,
         default=None,
@@ -600,6 +658,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     if args.animation_fps is not None and args.animation_fps != 0 and not (1 <= args.animation_fps <= 255):
         print(f"{RED}Error: --animation-fps must be between 1 and 255 (or 0 for default).{RESET}", file=sys.stderr)
+        return 1
+    if args.battery_warn is not None and args.battery_warn != 0 and not (5 <= args.battery_warn <= 95):
+        print(f"{RED}Error: --battery-warn must be between 5 and 95 (or 0 to reset).{RESET}", file=sys.stderr)
+        return 1
+    if args.battery_crit is not None and args.battery_crit != 0 and not (1 <= args.battery_crit <= 90):
+        print(f"{RED}Error: --battery-crit must be between 1 and 90 (or 0 to reset).{RESET}", file=sys.stderr)
         return 1
     if args.cursor_color is not None and args.cursor_color not in ("Default", "off", "none", ""):
         import re as _re
@@ -738,6 +802,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         app_updates["accent_border"] = args.border
     if args.status_bar is not None:
         app_updates["status_bar"] = args.status_bar
+    if args.battery_mode is not None:
+        app_updates["battery_mode"] = args.battery_mode
+    if args.battery_style is not None:
+        app_updates["battery_style"] = args.battery_style
+    if args.battery_time is not None:
+        app_updates["battery_time"] = args.battery_time
+    if args.battery_warn is not None:
+        app_updates["battery_warn"] = args.battery_warn
+    if args.battery_crit is not None:
+        app_updates["battery_crit"] = args.battery_crit
+    if args.battery_toast is not None:
+        app_updates["battery_toast"] = args.battery_toast
     if args.agent_radar is not None:
         app_updates["agent_indicators"] = args.agent_radar
     if args.ssh_alert is not None:
